@@ -53,6 +53,7 @@
 #define READ_L11COUNTER   0xAAAA5555
 #define READ_L12COUNTER   0x3333CCCC
 #define READ_L13COUNTER   0xCCCC3333
+#define READ_STATUS       0x00FFFF00
 #define EXIT              0x0000FFFF
 
 #define CMD_MAX_LEN       15
