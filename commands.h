@@ -66,7 +66,7 @@ typedef void (*funcPtr_t)(axiRegisters_t* regDev, int connfd, struct cmd* cmd);
 
 typedef struct cmd{
     const char *cmdStr;
-    uint8_t cmdVal;
+    uint32_t cmdVal;
     const char *feedbackStr;
     funcPtr_t funcPtr;
     uint32_t baseAddr;
