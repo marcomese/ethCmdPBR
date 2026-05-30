@@ -74,6 +74,6 @@ typedef struct cmd{
     uint32_t regAddr;
 } cmd_t;
 
-uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* ethStr);
+uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* ethStr, int nBytes);
 
 #endif

@@ -160,7 +160,7 @@ void* cmdDecodeThread(void *arg){
         *cmdArg->socketStatus = localSocketStatus;
 
         if(localSocketStatus > 0)
-            *cmdArg->cmdID = decodeCmdStr(cmdArg->regs, cmdArg->connfd, ethStr);
+            *cmdArg->cmdID = decodeCmdStr(cmdArg->regs, cmdArg->connfd, ethStr, localSocketStatus);
         else{
             pthread_mutex_unlock(&mtx);
             pthread_exit(NULL);
