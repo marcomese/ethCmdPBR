@@ -148,30 +148,43 @@ void unlockFile(char* fileName){
 void* cmdDecodeThread(void *arg){
     cmdDecodeArgs_t* cmdArg = (cmdDecodeArgs_t*)arg;
     const char *welcomeStr = "CLK BOARD\n";
-    char ethStr[CMD_MAX_LEN] = "";
+    char rxBuf[CMD_MAX_LEN] = "";
+    int  rxLen = 0;
+    char chunk[CMD_MAX_LEN] = "";
     int localSocketStatus;
 
     write(cmdArg->connfd, welcomeStr, strlen(welcomeStr));
 
     while(*cmdArg->cmdID != EXIT){
-        localSocketStatus = read(cmdArg->connfd, ethStr, CMD_MAX_LEN);
+        localSocketStatus = read(cmdArg->connfd, chunk, CMD_MAX_LEN - 1);
 
         pthread_mutex_lock(&mtx);
         *cmdArg->socketStatus = localSocketStatus;
 
-        if(localSocketStatus > 0)
-            *cmdArg->cmdID = decodeCmdStr(cmdArg->regs, cmdArg->connfd, ethStr, localSocketStatus);
-        else{
+        if(localSocketStatus <= 0){
             pthread_mutex_unlock(&mtx);
             pthread_exit(NULL);
         }
-        pthread_mutex_unlock(&mtx);
 
-        strncpy(ethStr,"",CMD_MAX_LEN);
+        for(int i = 0; i < localSocketStatus; i++){
+            char ch = chunk[i];
+
+            if(ch == '\n' || ch == '\r'){
+                if(rxLen > 0){
+                    rxBuf[rxLen] = '\0';
+                    *cmdArg->cmdID = decodeCmdStr(cmdArg->regs, cmdArg->connfd, rxBuf, rxLen);
+                    rxLen = 0;
+                }
+            }else if(rxLen < CMD_MAX_LEN - 1){
+                rxBuf[rxLen++] = ch;
+            }
+        }
+
+        pthread_mutex_unlock(&mtx);
     }
 
     pthread_exit((void *)cmdArg->cmdID);
-}   
+}
 
 void* checkFifoThread(void *arg){
     FILE *outFile;

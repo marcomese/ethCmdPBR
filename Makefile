@@ -19,4 +19,4 @@ else
 endif
 
 clean:
-	rm ./*.o
+	rm -f ./*.o

@@ -186,17 +186,9 @@ static cmd_t *getCmd(const char *name){
     return item;
 }
 
-uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* ethStr, int nBytes){
-    char cmdStr[CMD_MAX_LEN] = "";
-
-    int nB = nBytes > CMD_MAX_LEN-1 ? CMD_MAX_LEN-1 : nBytes;
-
-    int i;
-
-    for (i = 0; i < nB && ethStr[i] != '\r' && ethStr[i] != '\n'; i++)
-        cmdStr[i] = ethStr[i];
-
-    cmdStr[i] = '\0';
+uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char *cmdStr, int len){
+    if(len == 0)
+        return NONE;
 
     cmd_t *cmd = getCmd(cmdStr);
 
