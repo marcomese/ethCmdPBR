@@ -33,8 +33,8 @@
 
 #define DATA_HEADER      0x424B4C43
 #define DATA_ADDR        0x00000000
-#define DATA_BYTES       512
-#define DATA_NUMERICS    6
+#define DATA_BYTES       24
+#define DATA_NUMERICS    24
 #define DATA_WORDS       (DATA_BYTES/4)
 #define DATA_GPS_BYTES   (DATA_BYTES-(DATA_NUMERICS*4))
 
@@ -118,7 +118,7 @@ typedef struct spb2Data{
     uint32_t     aliveTime;
     uint32_t     deadTime;
     uint32_t     status;
-    char         gpsStr[DATA_GPS_BYTES];
+    //char         gpsStr[DATA_GPS_BYTES];
     unsigned int crc;
 } spb2Data_t;
 
@@ -198,7 +198,8 @@ void* checkFifoThread(void *arg){
     uint32_t fileCounter = 0;
     uint32_t imuTimestamp = 0;
     char fileName[FILENAME_LEN] = "";
-    spb2Data_t data = {0, 0, 0, 0, 0, 0, 0, 0, "", 0};
+    //spb2Data_t data = {0, 0, 0, 0, 0, 0, 0, 0, "", 0};
+    spb2Data_t data = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
     while(!exitCondition){
         dma_transfer_s2mm(chkArg->regs->dmaReg, DATA_BYTES, chkArg->socketStatus, chkArg->cmdID, chkArg->regs->statusReg, &mtx);
@@ -206,6 +207,7 @@ void* checkFifoThread(void *arg){
         pthread_mutex_lock(&mtx);
         socketStatusLocal = *chkArg->socketStatus;
         cmdIDLocal = *chkArg->cmdID;
+        statusReg = *(chkArg->regs->statusReg);
         imuTimestamp = *chkArg->imuTimestamp;
         pthread_mutex_unlock(&mtx);
 
@@ -213,7 +215,7 @@ void* checkFifoThread(void *arg){
 
         running = statusReg & RUN_STATUS_MASK;
 
-        memset(data.gpsStr, '\0', DATA_GPS_BYTES);
+        //memset(data.gpsStr, '\0', DATA_GPS_BYTES);
 
         if(!exitCondition && running){
             if(!(eventCounter++ % TRG_NUM_PER_FILE)){
@@ -232,7 +234,7 @@ void* checkFifoThread(void *arg){
             data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
             data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
             data.status    = statusReg;
-
+/*
             for(int i = DATA_NUMERICS; i < DATA_WORDS; i++){
                 data.gpsStr[((i-DATA_NUMERICS)*4)]     = (char)(*(chkArg->fifoData+i)  & 0x000000FF);
                 data.gpsStr[(((i-DATA_NUMERICS)*4)+1)] = (char)((*(chkArg->fifoData+i) & 0x0000FF00) >> 8);
@@ -243,7 +245,7 @@ void* checkFifoThread(void *arg){
             data.gpsStr[DATA_GPS_BYTES-3] = (char)((imuTimestamp & 0x0000FF));
             data.gpsStr[DATA_GPS_BYTES-2] = (char)((imuTimestamp & 0x00FF00) >> 8);
             data.gpsStr[DATA_GPS_BYTES-1] = (char)((imuTimestamp & 0xFF0000) >> 16);
-
+*/
             pthread_mutex_unlock(&mtx);
 
             data.crc = crc_32((unsigned char *)&data, sizeof(data)-sizeof(data.crc), startCRC32);

@@ -18,14 +18,15 @@
 #define FIFO_STATUS_ADDR  0x43C00004
 
 //  STATUS_REG registers
-#define TRG_COUNTER_ADDR  0x43C10004
-#define GTU_COUNTER_ADDR  0x43C10008
+#define EVT_COUNTER_ADDR   0x43C10004
+#define GTU_COUNTER_ADDR   0x43C10008
+#define FIFO_COUNTER_ADDR  0x43C1000C
 
 // L1CNT_REG_ADDR registers
-#define L1_1_COUNTER_ADDR 0x43C20000
-#define L1_2_COUNTER_ADDR 0x43C20004
-#define L1_3_COUNTER_ADDR 0x43C20008
-#define L1_4_COUNTER_ADDR 0x43C2000C
+#define L1_0_COUNTER_ADDR 0x43C20000
+#define L1_1_COUNTER_ADDR 0x43C20004
+#define L1_2_COUNTER_ADDR 0x43C20008
+#define L1_3_COUNTER_ADDR 0x43C2000C
 
 uint32_t readReg(uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr);
 void writeReg(uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr, uint32_t data);

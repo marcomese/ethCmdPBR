@@ -103,6 +103,7 @@ static void readCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
             regVal = readReg(reg, c->baseAddr, c->regAddr);
             decodeStatusReg(regVal,resStr);
             break;
+        case READ_L10COUNTER:
         case READ_L11COUNTER:
         case READ_L12COUNTER:
         case READ_L13COUNTER:
@@ -110,7 +111,7 @@ static void readCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
             regVal = readReg(reg, c->baseAddr, c->regAddr);
             snprintf(resStr, TCP_SND_BUF, "%s%u\n", c->feedbackStr, (unsigned int)regVal);
             break;
-        case READ_TRGCOUNTER:
+        case READ_EVTCOUNTER:
         case READ_GTUCOUNTER:
             reg = regDev->statusReg;
             regVal = readReg(reg, c->baseAddr, c->regAddr);
@@ -142,11 +143,11 @@ static cmd_t commands[] = {
     {"gps2 on",       GPS2_ON,         "GPS2 ON\n",         writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
     {"gps1 no",       GPS1_NO,         "NO GPS1\n",         writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
     {"gps2 no",       GPS2_NO,         "NO GPS2\n",         writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
-    {"gpsauto on",    GPS_AUTO_ON,      "GPS AUTO ON\n",     writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
-    {"gpsauto no",    GPS_AUTO_NO,      "GPS AUTO NO\n",     writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
+    {"gpsauto on",    GPS_AUTO_ON,     "GPS AUTO ON\n",     writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
+    {"gpsauto no",    GPS_AUTO_NO,     "GPS AUTO NO\n",     writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
     {"gtu reset",     RESET_GTU_COUNT, "RESET GTU COUNT\n", writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
-    {"pck reset",     RESET_PCK_COUNT, "RESET PCK COUNT\n", writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
-    {"trg reset",     RESET_TRG_COUNT, "RESET TRG COUNT\n", writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
+    {"evt reset",     RESET_EVT_COUNT, "RESET EVT COUNT\n", writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
+    {"l1 reset",      RESET_L1_COUNT,  "RESET L1 COUNT\n",  writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
     {"all reset",     RESET_ALL_COUNT, "RESET ALL COUNT\n", writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
     {"ppstrg on",     PPS_TRG_ON,      "PPS TRG ON\n",      writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
     {"ppstrg off",    PPS_TRG_OFF,     "PPS TRG OFF\n",     writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
@@ -164,7 +165,8 @@ static cmd_t commands[] = {
     {"zq3 on",        ZYNQ3_ON,        "ZYNQ3 ON\n",        writeCmd, CTRL_REG_ADDR,   CMD_RECV_ADDR},
     {"status",        READ_STATUS,     NULL,                readCmd,  STATUS_REG_ADDR, STATUS_REG_ADDR},
     {"gtu counter",   READ_GTUCOUNTER, "GTU COUNTER=",      readCmd,  STATUS_REG_ADDR, GTU_COUNTER_ADDR},
-    {"trg counter",   READ_TRGCOUNTER, "TRG COUNTER=",      readCmd,  STATUS_REG_ADDR, TRG_COUNTER_ADDR},
+    {"evt counter",   READ_EVTCOUNTER, "EVT COUNTER=",      readCmd,  STATUS_REG_ADDR, EVT_COUNTER_ADDR},
+    {"l10 counter",   READ_L10COUNTER, "L1_0 COUNTER=",     readCmd,  L1CNT_REG_ADDR,  L1_0_COUNTER_ADDR},
     {"l11 counter",   READ_L11COUNTER, "L1_1 COUNTER=",     readCmd,  L1CNT_REG_ADDR,  L1_1_COUNTER_ADDR},
     {"l12 counter",   READ_L12COUNTER, "L1_2 COUNTER=",     readCmd,  L1CNT_REG_ADDR,  L1_2_COUNTER_ADDR},
     {"l13 counter",   READ_L13COUNTER, "L1_3 COUNTER=",     readCmd,  L1CNT_REG_ADDR,  L1_3_COUNTER_ADDR},
