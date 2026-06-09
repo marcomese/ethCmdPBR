@@ -12,6 +12,8 @@
 #include <sys/mman.h>
 #include <pthread.h>
 #include <time.h>
+#include <termios.h>
+#include <poll.h>
 #include "commands.h"
 #include "registers.h"
 #include "dma.h"
@@ -23,6 +25,8 @@
 #define BIND_MAX_TRIES   10
 #define LISTEN_MAX_TRIES 10
 
+#define GPS_CONF_STR     0x02286D0200029903
+
 #define DATA_HEADER      0x424B4C43
 #define DATA_ADDR        0x1F000000
 #define DATA_BYTES       24
@@ -33,7 +37,7 @@
 #define FILENAME_LEN     55
 #define TRG_NUM_PER_FILE 25
 
-#define TRGCNT_IDX 0
+#define EVTCNT_IDX 0
 #define GTUCNT_IDX 1
 #define TRGFLG_IDX 2
 #define ALIVET_IDX 3
@@ -57,17 +61,30 @@ typedef struct chkFifoArgs{
     uint32_t*       fifoData;
 } chkFifoArgs_t;
 
+typedef struct gpsCtrlArgs{
+
+} gpsCtrlArgs_t;
+
+typedef struct isrArgs{
+    uint32_t interruptID;
+} isrArgs_t;
+
 typedef struct pbrData{
     uint32_t     header;
     uint32_t     unixTime;
-    uint32_t     trgCount;
+    uint32_t     evtCount;
     uint32_t     gtuCount;
     uint32_t     trgFlag;
     uint32_t     aliveTime;
     uint32_t     deadTime;
     uint32_t     status;
+    //char         gpsStr[DATA_GPS_BYTES];
     unsigned int crc;
 } pbrData_t;
+
+typedef struct gpsData{
+
+} gpsData_t;
 
 void genFileName(uint32_t fileCounter, char* fileName, uint32_t fileNameLen){
     time_t rawtime = time(NULL);
@@ -173,7 +190,7 @@ void* checkFifoThread(void *arg){
             data.header    = DATA_HEADER;
             pthread_mutex_lock(&mtx);
             data.unixTime  = (uint32_t)time(NULL);
-            data.trgCount  = *(chkArg->fifoData+TRGCNT_IDX);
+            data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
             data.gtuCount  = *(chkArg->fifoData+GTUCNT_IDX);
             data.trgFlag   = *(chkArg->fifoData+TRGFLG_IDX);
             data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
@@ -197,18 +214,74 @@ void* checkFifoThread(void *arg){
     pthread_exit((void *)chkArg->fifoData);
 }
 
+void* gpsCtrlThread(void* arg){
+
+}
+
+void* isrThread(void* arg){
+    uint32_t count = 1;
+
+    int fdNack = openUioByName("nack");
+    if(fdNack < 0){
+        fprintf(stderr,"Error in opening UIO for nack\n");
+        pthread_exit(NULL);
+    }
+    int fdTrg = openUioByName("trig");
+    if(fdTrg < 0){
+        fprintf(stderr,"Error in opening UIO for trig\n");
+        pthread_exit(NULL);
+    }
+
+    write(fdNack, &count, sizeof(count));
+    write(fdTrg,  &count, sizeof(count));
+
+    struct pollfd pfds[] = {
+        { .fd = fdNack, .events = POLLIN },
+        { .fd = fdTrg,  .events = POLLIN }
+    };
+    int nfds = sizeof(pfds)/sizeof(pfds[0]);
+
+    while(1) {
+        int ret = poll(pfds, nfds, -1);
+        if (ret < 0) {
+            fprintf(stderr,"Error in poll return value\n");
+            break;
+        }
+        for (int i = 0; i < nfds; i++) {
+            if (pfds[i].revents & POLLIN) {
+                read(pfds[i].fd, &count, sizeof(count));
+                if (pfds[i].fd == fdNack) {
+                    printf("NACK ricevuto! count=%u\n", count);
+                } else if (pfds[i].fd == fdTrg) {
+                    printf("TRIG ricevuto! count=%u\n", count);
+                }
+                write(pfds[i].fd, &count, sizeof(count));
+            }
+        }
+    }
+    close(fdNack);
+    close(fdTrg);
+    pthread_exit(NULL);
+}
+
 int main(int argc, char *argv[]){
     axiRegisters_t axiRegs;
     cmdDecodeArgs_t cmdDecodeArg;
     chkFifoArgs_t chkFifoArg;
+    gpsCtrlArgs_t gpsArg;
+    isrArgs_t isrArg;
     pthread_t cmdDecID;
     pthread_t chkSttID;
+    pthread_t gpsCtrlID;
+    pthread_t isrID;
     int listenfd = 0;
     int connfd = 0;
     struct sockaddr_in serv_addr;
     uint32_t* fifoData;
-    uint32_t cmdDecRetVal = 0;
-    uint32_t chkSttRetVal = 0;
+    uint32_t cmdDecRetVal  = 0;
+    uint32_t chkSttRetVal  = 0;
+    uint32_t gpsCtrlRetVal = 0;
+    uint32_t isrRetVal = 0;
     uint32_t cmdID = NONE;
     int socketStatus = 1;
     int err = -1;
@@ -258,7 +331,7 @@ int main(int argc, char *argv[]){
 
     fd = openUioByName("dma_buffer");
     if(fd < 0)
-        fprintf(stderr,"Error in opening UIO for dma_buf (memory to store DMA data)\n");
+        fprintf(stderr,"Error in opening UIO for dma_buffer (DMA pool)\n");
 
     mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(mmapRet == MAP_FAILED)
@@ -321,6 +394,11 @@ int main(int argc, char *argv[]){
     chkFifoArg.socketStatus = &socketStatus;
     chkFifoArg.fifoData     = fifoData;
 
+    err = pthread_create(&isrID, NULL, &isrThread, (void*)&isrArg);
+    if(err != 0){
+        fprintf(stderr,"\tERR: Cannot create gpsCtrl thread, disconnecting...: [%s]\n", strerror(err));
+    }
+
     while (1)
     {
         cmdID = NONE;
@@ -355,10 +433,21 @@ int main(int argc, char *argv[]){
             continue;
         }
 
-        pthread_join(cmdDecID, (void**)&cmdDecRetVal);
-        pthread_join(chkSttID, (void**)&chkSttRetVal);
+        err = pthread_create(&gpsCtrlID, NULL, &gpsCtrlThread, (void*)&gpsArg);
+        if(err != 0){
+            fprintf(stderr,"\tERR: Cannot create gpsCtrl thread, disconnecting...: [%s]\n", strerror(err));
+            close(connfd);
+            continue;
+        }
+
+        pthread_join(cmdDecID,  (void**)&cmdDecRetVal);
+        pthread_join(chkSttID,  (void**)&chkSttRetVal);
+        pthread_join(gpsCtrlID, (void**)&gpsCtrlRetVal);
+
         pthread_mutex_destroy(&mtx);
 
         close(connfd);
     }
+
+    pthread_join(isrID, (void**)&isrRetVal);
 }
