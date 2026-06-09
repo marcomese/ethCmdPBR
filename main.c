@@ -32,7 +32,7 @@
 #define LISTEN_MAX_TRIES 10
 
 #define DATA_HEADER      0x424B4C43
-#define DATA_ADDR        0x00000000
+#define DATA_ADDR        0x1F000000
 #define DATA_BYTES       24
 #define DATA_NUMERICS    24
 #define DATA_WORDS       (DATA_BYTES/4)
@@ -463,36 +463,53 @@ int main(int argc, char *argv[]){
     uint32_t imuTimestamp = 0;
     float quat[4] = {0.0,0.0,0.0,0.0};
     float eulers[3] = {0.0,0.0,0.0};
+    int fd   = 0;
 
-    int devmem = open("/dev/mem", O_RDWR | O_SYNC);
-    if (devmem < 0)
-        fprintf(stderr,"Error in opening /dev/mem\n");
+    fd = openUioByName("AXIRegister@43c00000");
+    if(fd < 0)
+        fprintf(stderr,"Error in opening UIO for AXIRegister@43c00000 (commands register)\n");
 
-    mmapRet = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, devmem, CTRL_REG_ADDR);
+    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(mmapRet == MAP_FAILED)
         fprintf(stderr,"Error in mapping CTRL_REG_ADDR\n");
     
     axiRegs.ctrlReg = (uint32_t*)mmapRet;
 
-    mmapRet = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, devmem, STATUS_REG_ADDR);
+    fd = openUioByName("AXIStatusReg@43c10000");
+    if(fd < 0)
+        fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c10000 (status and counters register)\n");
+
+    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(mmapRet == MAP_FAILED)
         fprintf(stderr,"Error in mapping STATUS_REG_ADDR\n");
 
     axiRegs.statusReg = (uint32_t*)mmapRet;
 
-    mmapRet = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, devmem, L1CNT_REG_ADDR);
+    fd  = openUioByName("AXIStatusReg@43c20000");
+    if(fd < 0)
+        fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c20000 (l1 counters register)\n");
+
+    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(mmapRet == MAP_FAILED)
         fprintf(stderr,"Error in mapping L1CNT_REG_ADDR\n");
 
     axiRegs.l1CntReg = (uint32_t*)mmapRet;
 
-    mmapRet = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, devmem, DMA_REG_ADDR);
+    fd = openUioByName("dma@40400000");
+    if(fd < 0)
+        fprintf(stderr,"Error in opening UIO for dma@40400000 (DMA)\n");
+
+    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(mmapRet == MAP_FAILED)
-        fprintf(stderr,"Error in mapping DMA_REG_ADDR\n");
+        fprintf(stderr,"Error in mapping DMA\n");
 
     axiRegs.dmaReg = (uint32_t*)mmapRet;
 
-    mmapRet = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, devmem, DATA_ADDR);
+    fd = openUioByName("dma_buffer");
+    if(fd < 0)
+        fprintf(stderr,"Error in opening UIO for dma_buf (memory to store DMA data)\n");
+
+    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(mmapRet == MAP_FAILED)
         fprintf(stderr,"Error in mapping DATA_ADDR\n");
 

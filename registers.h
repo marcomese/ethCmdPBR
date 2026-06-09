@@ -1,10 +1,14 @@
 #ifndef REGISTERS_H_
 #define REGISTERS_H_
 
+#include <glob.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <string.h>
 #include <stdint.h>
 #include <sys/mman.h>
 
-#define PAGE_SIZE         4096UL
+#define AXI_MAP_SIZE      65536UL
 
 // Registers base addresses
 #define CTRL_REG_ADDR     0x43C00000
@@ -30,6 +34,7 @@
 
 uint32_t readReg(uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr);
 void writeReg(uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr, uint32_t data);
+int openUioByName(const char *name);
 
 typedef struct axiRegisters{
     uint32_t* ctrlReg;
