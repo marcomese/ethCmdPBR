@@ -168,8 +168,8 @@ void* gpsCtrlThread(void* arg){
     for(int i = 0; i < GPS_NUM; i++){
         struct termios tty;
         tcgetattr(fds[i], &tty);
-        cfsetispeed(&tty, B38400);
-        cfsetospeed(&tty, B38400);
+        cfsetispeed(&tty, B115200);
+        cfsetospeed(&tty, B115200);
         tty.c_cflag |= (CLOCAL | CREAD);
         tty.c_cflag &= ~CSIZE;
         tty.c_cflag |= CS8;
