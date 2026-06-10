@@ -1,89 +1,28 @@
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/types.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <pthread.h>
-#include <time.h>
-#include <termios.h>
-#include <poll.h>
-#include "commands.h"
-#include "registers.h"
-#include "dma.h"
-#include "crc32.h"
+#include "main.h"
 
-#define CONN_PORT        5000
-#define CONN_MAX_QUEUE   10
+pthread_mutex_t poolMtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mtx     = PTHREAD_MUTEX_INITIALIZER;
 
-#define BIND_MAX_TRIES   10
-#define LISTEN_MAX_TRIES 10
+cmdDecodeArgs_t* acquireSlot(cmdDecodeArgs_t* pool){
+    cmdDecodeArgs_t* slot = NULL;
 
-#define GPS_CONF_STR     0x02286D0200029903
+    pthread_mutex_lock(&poolMtx);
+    for(int i = 0; i < CONN_MAX; i++){
+        if(!pool[i].inUse){
+            pool[i].inUse = 1;
+            slot = &pool[i];
+            break;
+        }
+    }
+    pthread_mutex_unlock(&poolMtx);
+    return slot;
+}
 
-#define DATA_HEADER      0x424B4C43
-#define DATA_ADDR        0x1F000000
-#define DATA_BYTES       24
-#define DATA_NUMERICS    24
-#define DATA_WORDS       (DATA_BYTES/4)
-#define DATA_GPS_BYTES   (DATA_BYTES-(DATA_NUMERICS*4))
-
-#define FILENAME_LEN     55
-#define TRG_NUM_PER_FILE 25
-
-#define EVTCNT_IDX 0
-#define GTUCNT_IDX 1
-#define TRGFLG_IDX 2
-#define ALIVET_IDX 3
-#define DEADT_IDX  4
-
-#define RUN_STATUS_MASK 0x01
-
-pthread_mutex_t mtx;
-
-typedef struct cmdDecodeArgs{
-    axiRegisters_t* regs;
-    uint32_t*       cmdID;
-    int             connfd;
-    int*            socketStatus;
-} cmdDecodeArgs_t;
-
-typedef struct chkFifoArgs{
-    axiRegisters_t* regs;
-    uint32_t*       cmdID;
-    uint32_t*       fifoData;
-} chkFifoArgs_t;
-
-typedef struct gpsCtrlArgs{
-
-} gpsCtrlArgs_t;
-
-typedef struct isrArgs{
-    uint32_t interruptID;
-} isrArgs_t;
-
-typedef struct pbrData{
-    uint32_t     header;
-    uint32_t     unixTime;
-    uint32_t     evtCount;
-    uint32_t     gtuCount;
-    uint32_t     trgFlag;
-    uint32_t     aliveTime;
-    uint32_t     deadTime;
-    uint32_t     status;
-    //char         gpsStr[DATA_GPS_BYTES];
-    unsigned int crc;
-} pbrData_t;
-
-typedef struct gpsData{
-
-} gpsData_t;
+void releaseSlot(cmdDecodeArgs_t* slot){
+    pthread_mutex_lock(&poolMtx);
+    slot->inUse = 0;
+    pthread_mutex_unlock(&poolMtx);
+}
 
 void genFileName(uint32_t fileCounter, char* fileName, uint32_t fileNameLen){
     time_t rawtime = time(NULL);
@@ -114,39 +53,42 @@ void* cmdDecodeThread(void *arg){
     char rxBuf[CMD_MAX_LEN] = "";
     int  rxLen = 0;
     char chunk[CMD_MAX_LEN] = "";
-    int localSocketStatus;
+    int  localSocketStatus;
+    int  exitConn = 0;
 
     write(cmdArg->connfd, welcomeStr, strlen(welcomeStr));
 
-    while(*cmdArg->cmdID != EXIT){
+    while(!exitConn){
         localSocketStatus = read(cmdArg->connfd, chunk, CMD_MAX_LEN - 1);
-
-        pthread_mutex_lock(&mtx);
-        *cmdArg->socketStatus = localSocketStatus;
-
-        if(localSocketStatus <= 0){
-            pthread_mutex_unlock(&mtx);
-            pthread_exit(NULL);
-        }
+        if(localSocketStatus <= 0)
+            break;
 
         for(int i = 0; i < localSocketStatus; i++){
             char ch = chunk[i];
-
             if(ch == '\n' || ch == '\r'){
                 if(rxLen > 0){
                     rxBuf[rxLen] = '\0';
-                    *cmdArg->cmdID = decodeCmdStr(cmdArg->regs, cmdArg->connfd, rxBuf, rxLen);
+                    pthread_mutex_lock(&mtx);
+                    uint32_t cmd = decodeCmdStr(cmdArg->regs, cmdArg->connfd, rxBuf, rxLen);
+                    if(cmd != EXIT)
+                        *cmdArg->cmdID = cmd;
+                    pthread_mutex_unlock(&mtx);
                     rxLen = 0;
+
+                    if(cmd == EXIT){
+                        exitConn = 1;
+                        break;
+                    }
                 }
             }else if(rxLen < CMD_MAX_LEN - 1){
                 rxBuf[rxLen++] = ch;
             }
         }
-
-        pthread_mutex_unlock(&mtx);
     }
 
-    pthread_exit((void *)cmdArg->cmdID);
+    close(cmdArg->connfd);
+    releaseSlot(cmdArg);
+    pthread_exit(NULL);
 }
 
 void* checkFifoThread(void *arg){
@@ -268,12 +210,15 @@ void* isrThread(void* arg){
 }
 
 int main(int argc, char *argv[]){
+    const int keepalive = TCP_KEEPALIVE_ON;
+    const int keepidle  = TCP_KEEPIDLE_SEC;
+    const int keepintvl = TCP_KEEPINTVL_SEC;
+    const int keepcnt   = TCP_KEEPCNT_PROBES;
     axiRegisters_t axiRegs;
-    cmdDecodeArgs_t cmdDecodeArg;
+    cmdDecodeArgs_t cmdDecodeArg[CONN_MAX];
     chkFifoArgs_t chkFifoArg;
     gpsCtrlArgs_t gpsArg;
     isrArgs_t isrArg;
-    pthread_t cmdDecID;
     pthread_t chkSttID;
     pthread_t gpsCtrlID;
     pthread_t isrID;
@@ -281,16 +226,20 @@ int main(int argc, char *argv[]){
     int connfd = 0;
     struct sockaddr_in serv_addr;
     uint32_t* fifoData;
-    uint32_t cmdDecRetVal  = 0;
     uint32_t chkSttRetVal  = 0;
     uint32_t gpsCtrlRetVal = 0;
     uint32_t isrRetVal = 0;
     uint32_t cmdID = NONE;
-    int socketStatus = 1;
     int err = -1;
     int tries = 0;
     void* mmapRet = NULL;
     int fd   = 0;
+
+    for(int i = 0; i < CONN_MAX; i++){
+        cmdDecodeArg[i].regs  = &axiRegs;
+        cmdDecodeArg[i].cmdID = &cmdID;
+        cmdDecodeArg[i].inUse = 0;
+    }
 
     fd = openUioByName("AXIRegister@43c00000");
     if(fd < 0)
@@ -357,7 +306,7 @@ int main(int argc, char *argv[]){
     while(tries < BIND_MAX_TRIES){
         err = bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
         if(err < 0){
-            fprintf(stderr,"\tERR: Error in bind function: [%d]\nRetry %d...\n", err, tries);
+            fprintf(stderr,"\tERR: Error in bind function: [%s]\nRetry %d...\n", strerror(errno), tries);
             tries++;
         }else{
             printf("Bind OK\n");
@@ -375,7 +324,7 @@ int main(int argc, char *argv[]){
     while(tries < LISTEN_MAX_TRIES){
         err = listen(listenfd, CONN_MAX_QUEUE);
         if(err < 0){
-            fprintf(stderr,"\tERR: Error in listen function: [%d]\nRetry %d...\n", err, tries);
+            fprintf(stderr,"\tERR: Error in listen function: [%s]\nRetry %d...\n", strerror(errno), tries);
             tries++;
         }else{
             printf("Listen OK\n");
@@ -388,19 +337,9 @@ int main(int argc, char *argv[]){
         return -1;
     }
 
-    cmdDecodeArg.regs         = &axiRegs;
-    cmdDecodeArg.cmdID        = &cmdID;
-    cmdDecodeArg.socketStatus = &socketStatus;
-
     chkFifoArg.regs         = &axiRegs;
     chkFifoArg.cmdID        = &cmdID;
     chkFifoArg.fifoData     = fifoData;
-
-    err = pthread_mutex_init(&mtx, NULL);
-    if(err != 0){
-        fprintf(stderr,"\nERR: Cannot init mutex, program must be restarted: [%s]\n", strerror(err));
-        return -1;
-    }
 
     err = pthread_create(&chkSttID, NULL, &checkFifoThread, (void*)&chkFifoArg);
     if(err != 0){
@@ -422,27 +361,37 @@ int main(int argc, char *argv[]){
 
     while (1)
     {
-        cmdID = NONE;
-        socketStatus = 1;
-
         connfd = accept(listenfd, (struct sockaddr*)NULL, NULL);
         if(connfd < 0){
-            fprintf(stderr,"\tERR: Error in accept: [%s]\n", strerror(err));
+            fprintf(stderr,"\tERR: Error in accept: [%s]\n", strerror(errno));
             continue;
         }
 
-        cmdDecodeArg.connfd = connfd;
+        setsockopt(connfd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+        setsockopt(connfd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
+        setsockopt(connfd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
+        setsockopt(connfd, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
 
-        err = pthread_create(&cmdDecID, NULL, &cmdDecodeThread, (void*)&cmdDecodeArg);
-        if(err != 0){
-            fprintf(stderr,"\tERR: Cannot create cmdDecode thread, disconnecting...: [%s]\n", strerror(err));
+        cmdDecodeArgs_t* slot = acquireSlot(cmdDecodeArg);
+        if(slot == NULL){
+            const char *busyMsg = "ERROR: server full, try later\n";
+            write(connfd, busyMsg, strlen(busyMsg));
             close(connfd);
             continue;
         }
 
-        pthread_join(cmdDecID,  (void**)&cmdDecRetVal);
+        slot->connfd = connfd;
 
-        close(connfd);
+        pthread_t tid;
+        err = pthread_create(&tid, NULL, &cmdDecodeThread, (void*)slot);
+        if(err != 0){
+            fprintf(stderr,"\tERR: Cannot create cmdDecode thread: [%s]\n", strerror(err));
+            close(connfd);
+            releaseSlot(slot);
+            continue;
+        }
+
+        pthread_detach(tid);
     }
     pthread_mutex_destroy(&mtx);
     pthread_join(chkSttID,  (void**)&chkSttRetVal);
