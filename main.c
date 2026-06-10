@@ -154,7 +154,52 @@ void* checkFifoThread(void *arg){
 }
 
 void* gpsCtrlThread(void* arg){
+    int fds[GPS_NUM];
+    struct pollfd pfds[GPS_NUM];
 
+    for(int i = 0; i < GPS_NUM; i++){
+        char ttyDev[GPS_DEV_LEN];
+
+        snprintf(ttyDev, GPS_DEV_LEN, "%s%d", GPS_DEV_BASE, i);
+
+        fds[i] = open(ttyDev, O_RDWR | O_NOCTTY);
+    }
+
+    for(int i = 0; i < GPS_NUM; i++){
+        struct termios tty;
+        tcgetattr(fds[i], &tty);
+        cfsetispeed(&tty, B9600);
+        cfsetospeed(&tty, B9600);
+        tty.c_cflag |= (CLOCAL | CREAD);
+        tty.c_cflag &= ~CSIZE;
+        tty.c_cflag |= CS8;
+        tty.c_cflag &= ~PARENB;
+        tty.c_cflag &= ~CSTOPB;
+        tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+        tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+        tty.c_oflag &= ~OPOST;
+        tcsetattr(fds[i], TCSANOW, &tty);
+
+        pfds[i].fd     = fds[i];
+        pfds[i].events = POLLIN;
+    }
+
+    while(1){
+        int ret = poll(pfds, GPS_NUM, 100);
+
+        if(ret < 0){
+            fprintf(stderr,"Error in poll return value\n");
+            break;
+        }
+
+        for (int i = 0; i < GPS_NUM; i++){
+            if(pfds[i].revents & POLLIN){
+                char buf[256];
+                int n = read(pfds[i].fd, buf, sizeof(buf));
+                printf("GPS[%d] = %s", i, buf);
+            }
+        }
+    }
 }
 
 void* isrThread(void* arg){
@@ -176,8 +221,8 @@ void* isrThread(void* arg){
     write(fdTrg,  &count, sizeof(count));
 
     struct pollfd pfds[] = {
-        { .fd = fdNack, .events = POLLIN },
-        { .fd = fdTrg,  .events = POLLIN }
+        {.fd = fdNack, .events = POLLIN},
+        {.fd = fdTrg,  .events = POLLIN}
     };
 
     int nfds = sizeof(pfds)/sizeof(pfds[0]);

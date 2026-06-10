@@ -35,6 +35,9 @@
 #define TCP_KEEPINTVL_SEC  5
 #define TCP_KEEPCNT_PROBES 3
 
+#define GPS_NUM          2
+#define GPS_DEV_BASE     "/dev/ttyUL"
+#define GPS_DEV_LEN      sizeof(GPS_DEV_BASE)/sizeof(GPS_DEV_BASE[0])+1
 #define GPS_CONF_STR     0x02286D0200029903
 
 #define DATA_HEADER      0x424B4C43
