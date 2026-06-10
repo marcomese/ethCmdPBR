@@ -56,8 +56,11 @@
 #define READ_L13COUNTER   0x0F0FF0F0
 #define READ_STATUS       0x00FFFF00
 #define EXIT              0x0000FFFF
+#define HELP              0x5555AAAA
 
 #define CMD_MAX_LEN       15
+
+#define DESC_MAX_LEN      50
 
 #define STATUS_ID_MAX_LEN 128
 
@@ -73,6 +76,7 @@ typedef struct cmd{
     funcPtr_t funcPtr;
     uint32_t baseAddr;
     uint32_t regAddr;
+    const char *cmdDesc;
 } cmd_t;
 
 uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* ethStr, int nBytes);
