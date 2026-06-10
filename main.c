@@ -57,7 +57,6 @@ typedef struct cmdDecodeArgs{
 typedef struct chkFifoArgs{
     axiRegisters_t* regs;
     uint32_t*       cmdID;
-    int*            socketStatus;
     uint32_t*       fifoData;
 } chkFifoArgs_t;
 
@@ -156,7 +155,6 @@ void* checkFifoThread(void *arg){
     unsigned int exitCondition = 0;
     uint32_t statusReg = 0;
     uint32_t running = 0;
-    int socketStatusLocal = 0;
     uint32_t cmdIDLocal = NONE;
     uint32_t eventCounter = 0;
     uint32_t fileCounter = 0;
@@ -165,15 +163,14 @@ void* checkFifoThread(void *arg){
     pbrData_t data = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
     while(!exitCondition){
-        dma_transfer_s2mm(chkArg->regs->dmaReg, DATA_BYTES, chkArg->socketStatus, chkArg->cmdID, chkArg->regs->statusReg, &mtx);
+        dma_transfer_s2mm(chkArg->regs->dmaReg, DATA_BYTES, chkArg->cmdID, chkArg->regs->statusReg, &mtx);
 
         pthread_mutex_lock(&mtx);
-        socketStatusLocal = *chkArg->socketStatus;
         cmdIDLocal = *chkArg->cmdID;
         statusReg = *(chkArg->regs->statusReg);
         pthread_mutex_unlock(&mtx);
 
-        exitCondition = (socketStatusLocal <= 0) || (cmdIDLocal == EXIT);
+        exitCondition = cmdIDLocal == EXIT;
 
         running = statusReg & RUN_STATUS_MASK;
 
@@ -226,6 +223,7 @@ void* isrThread(void* arg){
         fprintf(stderr,"Error in opening UIO for nack\n");
         pthread_exit(NULL);
     }
+
     int fdTrg = openUioByName("trig");
     if(fdTrg < 0){
         fprintf(stderr,"Error in opening UIO for trig\n");
@@ -239,22 +237,27 @@ void* isrThread(void* arg){
         { .fd = fdNack, .events = POLLIN },
         { .fd = fdTrg,  .events = POLLIN }
     };
+
     int nfds = sizeof(pfds)/sizeof(pfds[0]);
 
-    while(1) {
+    while(1){
         int ret = poll(pfds, nfds, -1);
-        if (ret < 0) {
+
+        if(ret < 0){
             fprintf(stderr,"Error in poll return value\n");
             break;
         }
-        for (int i = 0; i < nfds; i++) {
-            if (pfds[i].revents & POLLIN) {
+
+        for (int i = 0; i < nfds; i++){
+            if(pfds[i].revents & POLLIN){
                 read(pfds[i].fd, &count, sizeof(count));
-                if (pfds[i].fd == fdNack) {
-                    printf("NACK ricevuto! count=%u\n", count);
-                } else if (pfds[i].fd == fdTrg) {
-                    printf("TRIG ricevuto! count=%u\n", count);
+
+                if(pfds[i].fd == fdNack){
+                    fprintf(stderr,"PL command_decoder cannot decode command\n");
+                }else if(pfds[i].fd == fdTrg){
+                    printf("TRIG count=%u\n", count);
                 }
+
                 write(pfds[i].fd, &count, sizeof(count));
             }
         }
@@ -391,12 +394,30 @@ int main(int argc, char *argv[]){
 
     chkFifoArg.regs         = &axiRegs;
     chkFifoArg.cmdID        = &cmdID;
-    chkFifoArg.socketStatus = &socketStatus;
     chkFifoArg.fifoData     = fifoData;
+
+    err = pthread_mutex_init(&mtx, NULL);
+    if(err != 0){
+        fprintf(stderr,"\nERR: Cannot init mutex, program must be restarted: [%s]\n", strerror(err));
+        return -1;
+    }
+
+    err = pthread_create(&chkSttID, NULL, &checkFifoThread, (void*)&chkFifoArg);
+    if(err != 0){
+        fprintf(stderr,"\tERR: Cannot create checkFifo thread, program must be restarted: [%s]\n", strerror(err));
+        return -1;
+    }
+
+    err = pthread_create(&gpsCtrlID, NULL, &gpsCtrlThread, (void*)&gpsArg);
+    if(err != 0){
+        fprintf(stderr,"\tERR: Cannot create gpsCtrl thread, program must be restarted: [%s]\n", strerror(err));
+        return -1;
+    }
 
     err = pthread_create(&isrID, NULL, &isrThread, (void*)&isrArg);
     if(err != 0){
-        fprintf(stderr,"\tERR: Cannot create gpsCtrl thread, disconnecting...: [%s]\n", strerror(err));
+        fprintf(stderr,"\tERR: Cannot create isr thread, program must be restarted: [%s]\n", strerror(err));
+        return -1;
     }
 
     while (1)
@@ -412,13 +433,6 @@ int main(int argc, char *argv[]){
 
         cmdDecodeArg.connfd = connfd;
 
-        err = pthread_mutex_init(&mtx, NULL);
-        if(err != 0){
-            fprintf(stderr,"\nERR: Cannot init mutex, disconnecting...: [%s]\n", strerror(err));
-            close(connfd);
-            continue;
-        }
-
         err = pthread_create(&cmdDecID, NULL, &cmdDecodeThread, (void*)&cmdDecodeArg);
         if(err != 0){
             fprintf(stderr,"\tERR: Cannot create cmdDecode thread, disconnecting...: [%s]\n", strerror(err));
@@ -426,28 +440,12 @@ int main(int argc, char *argv[]){
             continue;
         }
 
-        err = pthread_create(&chkSttID, NULL, &checkFifoThread, (void*)&chkFifoArg);
-        if(err != 0){
-            fprintf(stderr,"\tERR: Cannot create checkFifo thread, disconnecting...: [%s]\n", strerror(err));
-            close(connfd);
-            continue;
-        }
-
-        err = pthread_create(&gpsCtrlID, NULL, &gpsCtrlThread, (void*)&gpsArg);
-        if(err != 0){
-            fprintf(stderr,"\tERR: Cannot create gpsCtrl thread, disconnecting...: [%s]\n", strerror(err));
-            close(connfd);
-            continue;
-        }
-
         pthread_join(cmdDecID,  (void**)&cmdDecRetVal);
-        pthread_join(chkSttID,  (void**)&chkSttRetVal);
-        pthread_join(gpsCtrlID, (void**)&gpsCtrlRetVal);
-
-        pthread_mutex_destroy(&mtx);
 
         close(connfd);
     }
-
-    pthread_join(isrID, (void**)&isrRetVal);
+    pthread_mutex_destroy(&mtx);
+    pthread_join(chkSttID,  (void**)&chkSttRetVal);
+    pthread_join(gpsCtrlID, (void**)&gpsCtrlRetVal);
+    pthread_join(isrID,     (void**)&isrRetVal);
 }
