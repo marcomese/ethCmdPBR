@@ -177,9 +177,7 @@ static cmd_t commands[] = {
 };
 
 static void help(axiRegisters_t *regDev, int connfd, cmd_t *c){
-    int n = sizeof(commands)/sizeof(commands[0]);
-
-    for(int i = 0; i < n; i++){
+    for(int i = 0; i < COUNT(commands); i++){
         char cStr[CMD_MAX_LEN+DESC_MAX_LEN] = "";
 
         snprintf(cStr, CMD_MAX_LEN+DESC_MAX_LEN, "%s:\n\t%s\n", commands[i].cmdStr, commands[i].cmdDesc);
