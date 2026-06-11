@@ -1,22 +1,24 @@
-CC = gcc
-DEPS = main.h commands.h registers.h dma.h crc32.h
-OBJ = main.o commands.o registers.o dma.o crc32.o
-LIBS = -lpthread -lm
-DBG = 0
+TARGET  := ethCmdPBR
+CC      := gcc
+SRCS    := $(wildcard *.c)
+OBJS    := $(SRCS:.c=.o)
 
-%.o: %.c $(DEPS)
+CFLAGS  := -Wall -Wextra
+LDFLAGS := -lpthread
+
 ifeq ($(DBG),1)
-	$(CC) -O0 -ggdb -c -o $@ $<
+CFLAGS += -O0 -ggdb
 else
-	$(CC) -c -o $@ $<
+CFLAGS += -O2
 endif
 
-ethCmd: $(OBJ)
-ifeq ($(DBG),1)
-	$(CC) -O0 -ggdb -o $@ $^ $(LIBS)
-else
-	$(CC) -o $@ $^ $(LIBS)
-endif
+$(TARGET): $(OBJS)
+	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -f ./*.o
+
+.PHONY: clean

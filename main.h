@@ -1,6 +1,5 @@
 #ifndef MAIN_H_
 #define MAIN_H_
-
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -23,28 +22,25 @@
 #include "dma.h"
 #include "crc32.h"
 
-#define CONN_PORT        5000
-#define CONN_MAX         5
-#define CONN_MAX_QUEUE   10
-
-#define BIND_MAX_TRIES   10
-#define LISTEN_MAX_TRIES 10
-
+#define CONN_PORT          5000
+#define CONN_MAX           5
+#define CONN_MAX_QUEUE     10
+#define BIND_MAX_TRIES     10
+#define LISTEN_MAX_TRIES   10
 #define TCP_KEEPALIVE_ON   1
 #define TCP_KEEPIDLE_SEC   10
 #define TCP_KEEPINTVL_SEC  5
 #define TCP_KEEPCNT_PROBES 3
 
-#define GPS_HEADER     "GPS"
-#define GPS_HEADER_LEN sizeof(GPS_HEADER)/sizeof(GPS_HEADER[0])+1
 #define GPS_NUM        2
 #define GPS_DEV_BASE   "/dev/ttyUL"
-#define GPS_DEV_LEN    sizeof(GPS_DEV_BASE)/sizeof(GPS_DEV_BASE[0])+1
+#define GPS_DEV_LEN    (sizeof(GPS_DEV_BASE) + 4)
 #define GPS_CONF_STR   0x02286D0200029903
 #define GPS_TOK        "$PTNL"
 #define GPS_TOK_LEN    5
 #define GPS_LINE_LEN   128
-#define GPS_BLOCK_LEN  DATA_GPS_BYTES
+#define GPS_HEADER     "GPS"
+#define GPS_HEADER_LEN 8
 
 #define DATA_HEADER    0x424B4C43
 #define DATA_ADDR      0x1F000000
@@ -52,9 +48,9 @@
 #define GPS_SLOT_LEN   244
 #define DATA_GPS_BYTES (GPS_NUM * GPS_SLOT_LEN)
 #define DATA_BYTES     (DATA_PL_BYTES + DATA_GPS_BYTES)
-#define DATA_WORDS     (DATA_BYTES/4)
 
-#define FILENAME_LEN     55
+#define FILENAME_LEN     64
+
 #define TRG_NUM_PER_FILE 25
 
 #define EVTCNT_IDX 0
@@ -66,22 +62,26 @@
 #define RUN_STATUS_MASK 0x01
 
 typedef struct cmdDecodeArgs{
-    axiRegisters_t* regs;
-    uint32_t*       cmdID;
-    int             connfd;
-    int             inUse;
+    axiRegisters_t*  regs;
+    uint32_t*        cmdID;
+    int              connfd;
+    int              inUse;
+    pthread_mutex_t* mtx;       // protects cmdID / register access shared with the other threads
+    pthread_mutex_t* poolMtx;   // protects the connection pool (inUse flags)
 } cmdDecodeArgs_t;
 
 typedef struct chkFifoArgs{
-    axiRegisters_t* regs;
-    uint32_t* cmdID;
-    uint32_t* fifoData;
-    char*     gpsStr;
+    axiRegisters_t*  regs;
+    uint32_t*        cmdID;
+    uint32_t*        fifoData;
+    char*            gpsStr;
+    pthread_mutex_t* mtx;
 } chkFifoArgs_t;
 
 typedef struct gpsCtrlArgs{
-    int   idx;
-    char* gpsStr;
+    int              idx;
+    char*            gpsStr;     // points to this GPS's slot inside the shared buffer
+    pthread_mutex_t* mtx;
 } gpsCtrlArgs_t;
 
 typedef struct isrArgs{

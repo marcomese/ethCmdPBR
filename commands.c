@@ -60,7 +60,7 @@ const char runCtrlDecode[16][STATUS_ID_MAX_LEN] = {
 };
 
 static void decodeStatusReg(uint32_t statusReg, char* statusStr){
-    uint32_t statusBit = 0;
+    uint8_t statusBit = 0;
     uint8_t runCtrlState = 0;
     char resStr[TCP_SND_BUF] = "";
     char tempStr[STATUS_ID_MAX_LEN] = "";
@@ -71,9 +71,9 @@ static void decodeStatusReg(uint32_t statusReg, char* statusStr){
         if(strncmp(statusIDStr[i],"",STATUS_ID_MAX_LEN) != 0){
             memset(tempStr, '\0', STATUS_ID_MAX_LEN);
             
-            statusBit = (statusReg & (1 << i)) >> i;
+            statusBit = ((statusReg & (1 << i)) >> i) & 1;
 
-            snprintf(tempStr, STATUS_ID_MAX_LEN, "%s%d ", statusIDStr[i], statusBit);
+            snprintf(tempStr, STATUS_ID_MAX_LEN, "%.*s%d ", STATUS_ID_STR_MAXLEN, statusIDStr[i], statusBit & 1);
 
             strncat(resStr, tempStr, STATUS_ID_MAX_LEN);
         }
@@ -127,6 +127,9 @@ static void readCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
 }
 
 static void echo(axiRegisters_t *regDev, int connfd, cmd_t *c){
+    (void)c;
+    (void)regDev;
+
     printf("%s", c->feedbackStr);
     write(connfd, c->feedbackStr, strlen(c->feedbackStr));
 }
@@ -177,7 +180,10 @@ static cmd_t commands[] = {
 };
 
 static void help(axiRegisters_t *regDev, int connfd, cmd_t *c){
-    for(int i = 0; i < COUNT(commands); i++){
+    (void)c;
+    (void)regDev;
+
+    for(unsigned int i = 0; i < COUNT(commands); i++){
         char cStr[CMD_MAX_LEN+DESC_MAX_LEN] = "";
 
         snprintf(cStr, CMD_MAX_LEN+DESC_MAX_LEN, "%s:\n\t%s\n", commands[i].cmdStr, commands[i].cmdDesc);

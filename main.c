@@ -1,297 +1,13 @@
 #include "main.h"
+#include "tcpserver.h"
+#include "acquisition.h"
+#include "gps.h"
+#include "isr.h"
 
 pthread_mutex_t poolMtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mtx     = PTHREAD_MUTEX_INITIALIZER;
 
-cmdDecodeArgs_t* acquireSlot(cmdDecodeArgs_t* pool){
-    cmdDecodeArgs_t* slot = NULL;
-
-    pthread_mutex_lock(&poolMtx);
-    for(int i = 0; i < CONN_MAX; i++){
-        if(!pool[i].inUse){
-            pool[i].inUse = 1;
-            slot = &pool[i];
-            break;
-        }
-    }
-    pthread_mutex_unlock(&poolMtx);
-    return slot;
-}
-
-void releaseSlot(cmdDecodeArgs_t* slot){
-    pthread_mutex_lock(&poolMtx);
-    slot->inUse = 0;
-    pthread_mutex_unlock(&poolMtx);
-}
-
-void genFileName(uint32_t fileCounter, char* fileName, uint32_t fileNameLen){
-    time_t rawtime = time(NULL);
-    struct tm *ptm = localtime(&rawtime);
-
-    snprintf(fileName, fileNameLen, "/srv/ftp/clkb_event_%04d%02d%02d%02d%02d%02d-%04d.dat.lock",
-             ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday,
-             ptm->tm_hour, ptm->tm_min, ptm->tm_sec,
-             fileCounter);
-
-    return;
-}
-
-void unlockFile(char* fileName){
-    char unlockedFileName[FILENAME_LEN] = "";
-
-    if(strncmp(fileName,"",FILENAME_LEN) != 0){
-        strncpy(unlockedFileName,fileName,strlen(fileName)-5);
-        rename(fileName,unlockedFileName);
-    }
-
-    return;
-}
-
-void* cmdDecodeThread(void *arg){
-    cmdDecodeArgs_t* cmdArg = (cmdDecodeArgs_t*)arg;
-    const char *welcomeStr = "CLK BOARD\n";
-    char rxBuf[CMD_MAX_LEN] = "";
-    int  rxLen = 0;
-    char chunk[CMD_MAX_LEN] = "";
-    int  localSocketStatus;
-    int  exitConn = 0;
-
-    write(cmdArg->connfd, welcomeStr, strlen(welcomeStr));
-
-    while(!exitConn){
-        localSocketStatus = read(cmdArg->connfd, chunk, CMD_MAX_LEN - 1);
-        if(localSocketStatus <= 0)
-            break;
-
-        for(int i = 0; i < localSocketStatus; i++){
-            char ch = chunk[i];
-            if(ch == '\n' || ch == '\r'){
-                if(rxLen > 0){
-                    rxBuf[rxLen] = '\0';
-                    pthread_mutex_lock(&mtx);
-                    uint32_t cmd = decodeCmdStr(cmdArg->regs, cmdArg->connfd, rxBuf, rxLen);
-                    if(cmd != EXIT)
-                        *cmdArg->cmdID = cmd;
-                    pthread_mutex_unlock(&mtx);
-                    rxLen = 0;
-
-                    if(cmd == EXIT){
-                        exitConn = 1;
-                        break;
-                    }
-                }
-            }else if(rxLen < CMD_MAX_LEN - 1){
-                rxBuf[rxLen++] = ch;
-            }
-        }
-    }
-
-    close(cmdArg->connfd);
-    releaseSlot(cmdArg);
-    pthread_exit(NULL);
-}
-
-void* checkFifoThread(void *arg){
-    FILE *outFile;
-    chkFifoArgs_t* chkArg = (chkFifoArgs_t*)arg;
-    unsigned int exitCondition = 0;
-    uint32_t statusReg = 0;
-    uint32_t running = 0;
-    uint32_t cmdIDLocal = NONE;
-    uint32_t eventCounter = 0;
-    uint32_t fileCounter = 0;
-    char fileName[FILENAME_LEN] = "";
-    pbrData_t data = {0, 0, 0, 0, 0, 0, 0, 0, "", 0};
-
-    while(!exitCondition){
-        dma_transfer_s2mm(chkArg->regs->dmaReg, DATA_PL_BYTES, chkArg->cmdID, chkArg->regs->statusReg, &mtx);
-
-        pthread_mutex_lock(&mtx);
-        cmdIDLocal = *chkArg->cmdID;
-        statusReg = *(chkArg->regs->statusReg);
-        pthread_mutex_unlock(&mtx);
-
-        exitCondition = cmdIDLocal == EXIT;
-
-        running = statusReg & RUN_STATUS_MASK;
-
-        memset(data.gpsStr, '\0', DATA_GPS_BYTES);
-
-        if(!exitCondition && running){
-            if(!(eventCounter++ % TRG_NUM_PER_FILE)){
-                unlockFile(fileName);
-                genFileName(fileCounter++,fileName,FILENAME_LEN);
-            }
-
-            outFile = fopen(fileName, "ab");
-
-            data.header    = DATA_HEADER;
-            pthread_mutex_lock(&mtx);
-            data.unixTime  = (uint32_t)time(NULL);
-            data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
-            data.gtuCount  = *(chkArg->fifoData+GTUCNT_IDX);
-            data.trgFlag   = *(chkArg->fifoData+TRGFLG_IDX);
-            data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
-            data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
-            data.status    = statusReg;
-            memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
-            pthread_mutex_unlock(&mtx);
-
-            data.crc = crc_32((unsigned char *)&data, sizeof(data)-sizeof(data.crc), startCRC32);
-
-            fwrite(&data, sizeof(data), 1, outFile);
-
-            fclose(outFile);
-        }else{
-            eventCounter = 0;
-            fileCounter = 0;
-            unlockFile(fileName);
-        }
-    }
-
-    pthread_exit((void *)chkArg->fifoData);
-}
-
-void* gpsCtrlThread(void* arg){
-    gpsCtrlArgs_t* gpsArg = (gpsCtrlArgs_t*)arg;
-    char ttyDev[GPS_DEV_LEN];
-    char block[GPS_SLOT_LEN];
-    int  blockLen  = 0;
-    int  blockOpen = 0;
-    struct pollfd pfd;
-
-    snprintf(ttyDev, GPS_DEV_LEN, "%s%d", GPS_DEV_BASE, gpsArg->idx+1);
-    int fd = open(ttyDev, O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if(fd < 0){
-        fprintf(stderr,"Error opening %s\n", ttyDev);
-        pthread_exit(NULL);
-    }
-
-    struct termios tty;
-    tcgetattr(fd, &tty);
-    tty.c_cflag |= (CLOCAL | CREAD);
-    tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;
-    tty.c_cflag &= ~PARENB;
-    tty.c_cflag &= ~CSTOPB;
-    tty.c_lflag |= ICANON;
-    tty.c_lflag &= ~(ECHO | ECHOE | ECHOK | ISIG);
-    tty.c_iflag &= ~(IXON | IXOFF | IXANY);
-    tty.c_iflag |= ICRNL;
-    tty.c_iflag &= ~(INLCR | IGNCR);
-    tty.c_oflag &= ~OPOST;
-    tcsetattr(fd, TCSANOW, &tty);
-
-    pfd.fd     = fd;
-    pfd.events = POLLIN;
-
-    while(1){
-        int ret = poll(&pfd, 1, -1);
-
-        if(ret < 0){
-            if(errno == EINTR)
-                continue;
-            fprintf(stderr,"Error in poll [%s]\n", strerror(errno));
-            break;
-        }
-
-        if(!(pfd.revents & POLLIN))
-            continue;
-
-        while(1){
-            char line[GPS_LINE_LEN];
-            int  n = read(fd, line, GPS_LINE_LEN - 1);
-
-            if(n <= 0)
-                break;
-
-            line[n] = '\0';
-
-            if(n == 1 && line[0] == '\n')
-                continue;
-
-            if(strncmp(line, GPS_TOK, GPS_TOK_LEN) == 0){
-                if(blockOpen && blockLen > 0){
-                    pthread_mutex_lock(&mtx);
-                    memset(gpsArg->gpsStr, '\0', GPS_SLOT_LEN);
-                    memcpy(gpsArg->gpsStr, block, blockLen);
-                    pthread_mutex_unlock(&mtx);
-                }
-                snprintf(block, GPS_HEADER_LEN, "%s%d", GPS_HEADER, gpsArg->idx+1);
-                blockLen  = GPS_HEADER_LEN - 1; // next write remove the \0 at the end of header
-                blockOpen = 1;
-            }
-
-            if(!blockOpen)
-                continue;
-
-            if(blockLen + n < GPS_SLOT_LEN){
-                memcpy(block + blockLen, line, n);
-                blockLen += n;
-            }else{
-                blockLen  = 0;
-                blockOpen = 0;
-            }
-        }
-    }
-
-    close(fd);
-    pthread_exit(NULL);
-}
-
-void* isrThread(void* arg){
-    uint32_t count = 1;
-
-    int fdNack = openUioByName("nack");
-    if(fdNack < 0){
-        fprintf(stderr,"Error in opening UIO for nack\n");
-        pthread_exit(NULL);
-    }
-
-    int fdTrg = openUioByName("trig");
-    if(fdTrg < 0){
-        fprintf(stderr,"Error in opening UIO for trig\n");
-        pthread_exit(NULL);
-    }
-
-    write(fdNack, &count, sizeof(count));
-    write(fdTrg,  &count, sizeof(count));
-
-    struct pollfd pfds[] = {
-        {.fd = fdNack, .events = POLLIN},
-        {.fd = fdTrg,  .events = POLLIN}
-    };
-
-    int nfds = sizeof(pfds)/sizeof(pfds[0]);
-
-    while(1){
-        int ret = poll(pfds, nfds, -1);
-
-        if(ret < 0){
-            fprintf(stderr,"Error in poll return value\n");
-            break;
-        }
-
-        for (int i = 0; i < nfds; i++){
-            if(pfds[i].revents & POLLIN){
-                read(pfds[i].fd, &count, sizeof(count));
-
-                if(pfds[i].fd == fdNack){
-                    fprintf(stderr,"PL command_decoder cannot decode command\n");
-                }else if(pfds[i].fd == fdTrg){
-                    printf("TRIG count=%u\n", count);
-                }
-
-                write(pfds[i].fd, &count, sizeof(count));
-            }
-        }
-    }
-    close(fdNack);
-    close(fdTrg);
-    pthread_exit(NULL);
-}
-
-int main(int argc, char *argv[]){
+int main(){
     const int keepalive = TCP_KEEPALIVE_ON;
     const int keepidle  = TCP_KEEPIDLE_SEC;
     const int keepintvl = TCP_KEEPINTVL_SEC;
@@ -316,9 +32,11 @@ int main(int argc, char *argv[]){
     char gpsStr[DATA_GPS_BYTES] = "";
 
     for(int i = 0; i < CONN_MAX; i++){
-        cmdDecodeArg[i].regs  = &axiRegs;
-        cmdDecodeArg[i].cmdID = &cmdID;
-        cmdDecodeArg[i].inUse = 0;
+        cmdDecodeArg[i].regs    = &axiRegs;
+        cmdDecodeArg[i].cmdID   = &cmdID;
+        cmdDecodeArg[i].inUse   = 0;
+        cmdDecodeArg[i].mtx     = &mtx;
+        cmdDecodeArg[i].poolMtx = &poolMtx;
     }
 
     fd = openUioByName("AXIRegister@43c00000");
@@ -328,7 +46,7 @@ int main(int argc, char *argv[]){
     mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(mmapRet == MAP_FAILED)
         fprintf(stderr,"Error in mapping CTRL_REG_ADDR\n");
-    
+
     axiRegs.ctrlReg = (uint32_t*)mmapRet;
 
     fd = openUioByName("AXIStatusReg@43c10000");
@@ -417,10 +135,11 @@ int main(int argc, char *argv[]){
         return -1;
     }
 
-    chkFifoArg.regs         = &axiRegs;
-    chkFifoArg.cmdID        = &cmdID;
-    chkFifoArg.fifoData     = fifoData;
-    chkFifoArg.gpsStr       = gpsStr;
+    chkFifoArg.regs     = &axiRegs;
+    chkFifoArg.cmdID    = &cmdID;
+    chkFifoArg.fifoData = fifoData;
+    chkFifoArg.gpsStr   = gpsStr;
+    chkFifoArg.mtx      = &mtx;
 
     err = pthread_create(&chkSttID, NULL, &checkFifoThread, (void*)&chkFifoArg);
     if(err != 0){
@@ -431,6 +150,7 @@ int main(int argc, char *argv[]){
     for(int i = 0; i < GPS_NUM; i++){
         gpsArg[i].idx    = i;
         gpsArg[i].gpsStr = gpsStr + i*GPS_SLOT_LEN;
+        gpsArg[i].mtx    = &mtx;
 
         err = pthread_create(&gpsCtrlID[i], NULL, &gpsCtrlThread, (void*)&gpsArg[i]);
         if(err != 0){
@@ -438,6 +158,7 @@ int main(int argc, char *argv[]){
             return -1;
         }
     }
+
     err = pthread_create(&isrID, NULL, &isrThread, (void*)&isrArg);
     if(err != 0){
         fprintf(stderr,"\tERR: Cannot create isr thread, program must be restarted: [%s]\n", strerror(err));

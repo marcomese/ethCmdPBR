@@ -58,13 +58,15 @@
 #define EXIT              0x0000FFFF
 #define HELP              0x5555AAAA
 
-#define CMD_MAX_LEN       15
+#define CMD_MAX_LEN          15
 
-#define DESC_MAX_LEN      50
+#define DESC_MAX_LEN         50
 
-#define STATUS_ID_MAX_LEN 128
+#define STATUS_ID_MAX_LEN    128
 
-#define TCP_SND_BUF       2048
+#define STATUS_ID_STR_MAXLEN 16
+
+#define TCP_SND_BUF          2048
 
 struct cmd;
 typedef void (*funcPtr_t)(axiRegisters_t* regDev, int connfd, struct cmd* cmd);
