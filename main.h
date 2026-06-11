@@ -35,17 +35,24 @@
 #define TCP_KEEPINTVL_SEC  5
 #define TCP_KEEPCNT_PROBES 3
 
-#define GPS_NUM          2
-#define GPS_DEV_BASE     "/dev/ttyUL"
-#define GPS_DEV_LEN      sizeof(GPS_DEV_BASE)/sizeof(GPS_DEV_BASE[0])+1
-#define GPS_CONF_STR     0x02286D0200029903
+#define GPS_HEADER     "GPS"
+#define GPS_HEADER_LEN sizeof(GPS_HEADER)/sizeof(GPS_HEADER[0])+1
+#define GPS_NUM        2
+#define GPS_DEV_BASE   "/dev/ttyUL"
+#define GPS_DEV_LEN    sizeof(GPS_DEV_BASE)/sizeof(GPS_DEV_BASE[0])+1
+#define GPS_CONF_STR   0x02286D0200029903
+#define GPS_TOK        "$PTNL"
+#define GPS_TOK_LEN    5
+#define GPS_LINE_LEN   128
+#define GPS_BLOCK_LEN  DATA_GPS_BYTES
 
-#define DATA_HEADER      0x424B4C43
-#define DATA_ADDR        0x1F000000
-#define DATA_BYTES       24
-#define DATA_NUMERICS    24
-#define DATA_WORDS       (DATA_BYTES/4)
-#define DATA_GPS_BYTES   (DATA_BYTES-(DATA_NUMERICS*4))
+#define DATA_HEADER    0x424B4C43
+#define DATA_ADDR      0x1F000000
+#define DATA_PL_BYTES  24
+#define GPS_SLOT_LEN   244
+#define DATA_GPS_BYTES (GPS_NUM * GPS_SLOT_LEN)
+#define DATA_BYTES     (DATA_PL_BYTES + DATA_GPS_BYTES)
+#define DATA_WORDS     (DATA_BYTES/4)
 
 #define FILENAME_LEN     55
 #define TRG_NUM_PER_FILE 25
@@ -67,12 +74,14 @@ typedef struct cmdDecodeArgs{
 
 typedef struct chkFifoArgs{
     axiRegisters_t* regs;
-    uint32_t*       cmdID;
-    uint32_t*       fifoData;
+    uint32_t* cmdID;
+    uint32_t* fifoData;
+    char*     gpsStr;
 } chkFifoArgs_t;
 
 typedef struct gpsCtrlArgs{
-
+    int   idx;
+    char* gpsStr;
 } gpsCtrlArgs_t;
 
 typedef struct isrArgs{
@@ -88,12 +97,8 @@ typedef struct pbrData{
     uint32_t     aliveTime;
     uint32_t     deadTime;
     uint32_t     status;
-    //char         gpsStr[DATA_GPS_BYTES];
+    char         gpsStr[DATA_GPS_BYTES];
     unsigned int crc;
 } pbrData_t;
-
-typedef struct gpsData{
-
-} gpsData_t;
 
 #endif

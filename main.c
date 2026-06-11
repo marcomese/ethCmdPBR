@@ -101,11 +101,10 @@ void* checkFifoThread(void *arg){
     uint32_t eventCounter = 0;
     uint32_t fileCounter = 0;
     char fileName[FILENAME_LEN] = "";
-    //pbrData_t data = {0, 0, 0, 0, 0, 0, 0, 0, "", 0};
-    pbrData_t data = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    pbrData_t data = {0, 0, 0, 0, 0, 0, 0, 0, "", 0};
 
     while(!exitCondition){
-        dma_transfer_s2mm(chkArg->regs->dmaReg, DATA_BYTES, chkArg->cmdID, chkArg->regs->statusReg, &mtx);
+        dma_transfer_s2mm(chkArg->regs->dmaReg, DATA_PL_BYTES, chkArg->cmdID, chkArg->regs->statusReg, &mtx);
 
         pthread_mutex_lock(&mtx);
         cmdIDLocal = *chkArg->cmdID;
@@ -116,7 +115,7 @@ void* checkFifoThread(void *arg){
 
         running = statusReg & RUN_STATUS_MASK;
 
-        //memset(data.gpsStr, '\0', DATA_GPS_BYTES);
+        memset(data.gpsStr, '\0', DATA_GPS_BYTES);
 
         if(!exitCondition && running){
             if(!(eventCounter++ % TRG_NUM_PER_FILE)){
@@ -135,7 +134,7 @@ void* checkFifoThread(void *arg){
             data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
             data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
             data.status    = statusReg;
-
+            memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
             pthread_mutex_unlock(&mtx);
 
             data.crc = crc_32((unsigned char *)&data, sizeof(data)-sizeof(data.crc), startCRC32);
@@ -154,52 +153,90 @@ void* checkFifoThread(void *arg){
 }
 
 void* gpsCtrlThread(void* arg){
-    int fds[GPS_NUM];
-    struct pollfd pfds[GPS_NUM];
+    gpsCtrlArgs_t* gpsArg = (gpsCtrlArgs_t*)arg;
+    char ttyDev[GPS_DEV_LEN];
+    char block[GPS_SLOT_LEN];
+    int  blockLen  = 0;
+    int  blockOpen = 0;
+    struct pollfd pfd;
 
-    for(int i = 0; i < GPS_NUM; i++){
-        char ttyDev[GPS_DEV_LEN];
-
-        snprintf(ttyDev, GPS_DEV_LEN, "%s%d", GPS_DEV_BASE, i);
-
-        fds[i] = open(ttyDev, O_RDWR | O_NOCTTY);
+    snprintf(ttyDev, GPS_DEV_LEN, "%s%d", GPS_DEV_BASE, gpsArg->idx+1);
+    int fd = open(ttyDev, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if(fd < 0){
+        fprintf(stderr,"Error opening %s\n", ttyDev);
+        pthread_exit(NULL);
     }
 
-    for(int i = 0; i < GPS_NUM; i++){
-        struct termios tty;
-        tcgetattr(fds[i], &tty);
-        cfsetispeed(&tty, B115200);
-        cfsetospeed(&tty, B115200);
-        tty.c_cflag |= (CLOCAL | CREAD);
-        tty.c_cflag &= ~CSIZE;
-        tty.c_cflag |= CS8;
-        tty.c_cflag &= ~PARENB;
-        tty.c_cflag &= ~CSTOPB;
-        tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-        tty.c_iflag &= ~(IXON | IXOFF | IXANY);
-        tty.c_oflag &= ~OPOST;
-        tcsetattr(fds[i], TCSANOW, &tty);
+    struct termios tty;
+    tcgetattr(fd, &tty);
+    tty.c_cflag |= (CLOCAL | CREAD);
+    tty.c_cflag &= ~CSIZE;
+    tty.c_cflag |= CS8;
+    tty.c_cflag &= ~PARENB;
+    tty.c_cflag &= ~CSTOPB;
+    tty.c_lflag |= ICANON;
+    tty.c_lflag &= ~(ECHO | ECHOE | ECHOK | ISIG);
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+    tty.c_iflag |= ICRNL;
+    tty.c_iflag &= ~(INLCR | IGNCR);
+    tty.c_oflag &= ~OPOST;
+    tcsetattr(fd, TCSANOW, &tty);
 
-        pfds[i].fd     = fds[i];
-        pfds[i].events = POLLIN;
-    }
+    pfd.fd     = fd;
+    pfd.events = POLLIN;
 
     while(1){
-        int ret = poll(pfds, GPS_NUM, 100);
+        int ret = poll(&pfd, 1, -1);
 
         if(ret < 0){
-            fprintf(stderr,"Error in poll return value\n");
+            if(errno == EINTR)
+                continue;
+            fprintf(stderr,"Error in poll [%s]\n", strerror(errno));
             break;
         }
 
-        for (int i = 0; i < GPS_NUM; i++){
-            if(pfds[i].revents & POLLIN){
-                char buf[256];
-                int n = read(pfds[i].fd, buf, sizeof(buf));
-                printf("GPS[%d] = %s", i, buf);
+        if(!(pfd.revents & POLLIN))
+            continue;
+
+        while(1){
+            char line[GPS_LINE_LEN];
+            int  n = read(fd, line, GPS_LINE_LEN - 1);
+
+            if(n <= 0)
+                break;
+
+            line[n] = '\0';
+
+            if(n == 1 && line[0] == '\n')
+                continue;
+
+            if(strncmp(line, GPS_TOK, GPS_TOK_LEN) == 0){
+                if(blockOpen && blockLen > 0){
+                    pthread_mutex_lock(&mtx);
+                    memset(gpsArg->gpsStr, '\0', GPS_SLOT_LEN);
+                    memcpy(gpsArg->gpsStr, block, blockLen);
+                    pthread_mutex_unlock(&mtx);
+                }
+                snprintf(block, GPS_HEADER_LEN, "%s%d", GPS_HEADER, gpsArg->idx+1);
+                blockLen  = GPS_HEADER_LEN - 1; // next write remove the \0 at the end of header
+                blockOpen = 1;
+            }
+
+            if(!blockOpen)
+                continue;
+
+            if(blockLen + n < GPS_SLOT_LEN){
+                memcpy(block + blockLen, line, n);
+                blockLen += n;
+            }else{
+                blockLen  = 0;
+                blockOpen = 0;
             }
         }
     }
+
+    close(fd);
+    pthread_exit(NULL);
 }
 
 void* isrThread(void* arg){
@@ -262,23 +299,21 @@ int main(int argc, char *argv[]){
     axiRegisters_t axiRegs;
     cmdDecodeArgs_t cmdDecodeArg[CONN_MAX];
     chkFifoArgs_t chkFifoArg;
-    gpsCtrlArgs_t gpsArg;
+    gpsCtrlArgs_t gpsArg[GPS_NUM];
     isrArgs_t isrArg;
     pthread_t chkSttID;
-    pthread_t gpsCtrlID;
+    pthread_t gpsCtrlID[GPS_NUM];
     pthread_t isrID;
     int listenfd = 0;
     int connfd = 0;
     struct sockaddr_in serv_addr;
     uint32_t* fifoData;
-    uint32_t chkSttRetVal  = 0;
-    uint32_t gpsCtrlRetVal = 0;
-    uint32_t isrRetVal = 0;
     uint32_t cmdID = NONE;
     int err = -1;
     int tries = 0;
     void* mmapRet = NULL;
     int fd   = 0;
+    char gpsStr[DATA_GPS_BYTES] = "";
 
     for(int i = 0; i < CONN_MAX; i++){
         cmdDecodeArg[i].regs  = &axiRegs;
@@ -385,6 +420,7 @@ int main(int argc, char *argv[]){
     chkFifoArg.regs         = &axiRegs;
     chkFifoArg.cmdID        = &cmdID;
     chkFifoArg.fifoData     = fifoData;
+    chkFifoArg.gpsStr       = gpsStr;
 
     err = pthread_create(&chkSttID, NULL, &checkFifoThread, (void*)&chkFifoArg);
     if(err != 0){
@@ -392,12 +428,16 @@ int main(int argc, char *argv[]){
         return -1;
     }
 
-    err = pthread_create(&gpsCtrlID, NULL, &gpsCtrlThread, (void*)&gpsArg);
-    if(err != 0){
-        fprintf(stderr,"\tERR: Cannot create gpsCtrl thread, program must be restarted: [%s]\n", strerror(err));
-        return -1;
-    }
+    for(int i = 0; i < GPS_NUM; i++){
+        gpsArg[i].idx    = i;
+        gpsArg[i].gpsStr = gpsStr + i*GPS_SLOT_LEN;
 
+        err = pthread_create(&gpsCtrlID[i], NULL, &gpsCtrlThread, (void*)&gpsArg[i]);
+        if(err != 0){
+            fprintf(stderr,"\tERR: Cannot create gpsCtrl thread for GPS%d, program must be restarted: [%s]\n", i+1, strerror(err));
+            return -1;
+        }
+    }
     err = pthread_create(&isrID, NULL, &isrThread, (void*)&isrArg);
     if(err != 0){
         fprintf(stderr,"\tERR: Cannot create isr thread, program must be restarted: [%s]\n", strerror(err));
@@ -412,10 +452,10 @@ int main(int argc, char *argv[]){
             continue;
         }
 
-        setsockopt(connfd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
-        setsockopt(connfd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
+        setsockopt(connfd,  SOL_SOCKET, SO_KEEPALIVE,  &keepalive, sizeof(keepalive));
+        setsockopt(connfd, IPPROTO_TCP, TCP_KEEPIDLE,  &keepidle,  sizeof(keepidle));
         setsockopt(connfd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
-        setsockopt(connfd, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
+        setsockopt(connfd, IPPROTO_TCP, TCP_KEEPCNT,   &keepcnt,   sizeof(keepcnt));
 
         cmdDecodeArgs_t* slot = acquireSlot(cmdDecodeArg);
         if(slot == NULL){
@@ -439,7 +479,8 @@ int main(int argc, char *argv[]){
         pthread_detach(tid);
     }
     pthread_mutex_destroy(&mtx);
-    pthread_join(chkSttID,  (void**)&chkSttRetVal);
-    pthread_join(gpsCtrlID, (void**)&gpsCtrlRetVal);
-    pthread_join(isrID,     (void**)&isrRetVal);
+    pthread_join(chkSttID,  NULL);
+    for(int i = 0; i < GPS_NUM; i++)
+        pthread_join(gpsCtrlID[i], NULL);
+    pthread_join(isrID, NULL);
 }
