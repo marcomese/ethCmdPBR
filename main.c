@@ -198,9 +198,4 @@ int main(){
 
         pthread_detach(tid);
     }
-    pthread_mutex_destroy(&mtx);
-    pthread_join(chkSttID,  NULL);
-    for(int i = 0; i < GPS_NUM; i++)
-        pthread_join(gpsCtrlID[i], NULL);
-    pthread_join(isrID, NULL);
 }
