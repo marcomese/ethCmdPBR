@@ -53,11 +53,12 @@
 
 #define TRG_NUM_PER_FILE 25
 
-#define EVTCNT_IDX 0
-#define GTUCNT_IDX 1
-#define TRGFLG_IDX 2
-#define ALIVET_IDX 3
-#define DEADT_IDX  4
+#define EVTCNT_IDX 5
+#define GTUCNT_IDX 4
+#define TRGFLG_IDX 3
+#define ALIVET_IDX 2
+#define DEADT_IDX  1
+#define STATUS_IDX 0
 
 #define RUN_STATUS_MASK 0x01
 
@@ -66,8 +67,8 @@ typedef struct cmdDecodeArgs{
     uint32_t*        cmdID;
     int              connfd;
     int              inUse;
-    pthread_mutex_t* mtx;       // protects cmdID / register access shared with the other threads
-    pthread_mutex_t* poolMtx;   // protects the connection pool (inUse flags)
+    pthread_mutex_t* mtx;
+    pthread_mutex_t* poolMtx;
 } cmdDecodeArgs_t;
 
 typedef struct chkFifoArgs{
@@ -75,18 +76,15 @@ typedef struct chkFifoArgs{
     uint32_t*        cmdID;
     uint32_t*        fifoData;
     char*            gpsStr;
+    int              fdTrg;
     pthread_mutex_t* mtx;
 } chkFifoArgs_t;
 
 typedef struct gpsCtrlArgs{
     int              idx;
-    char*            gpsStr;     // points to this GPS's slot inside the shared buffer
+    char*            gpsStr;
     pthread_mutex_t* mtx;
 } gpsCtrlArgs_t;
-
-typedef struct isrArgs{
-    uint32_t interruptID;
-} isrArgs_t;
 
 typedef struct pbrData{
     uint32_t     header;

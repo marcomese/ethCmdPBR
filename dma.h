@@ -8,6 +8,7 @@
 #include <termios.h>
 #include <sys/mman.h>
 #include <pthread.h>
+#include <poll.h>
 #include <stdint.h>
 #include "commands.h"
 
@@ -45,11 +46,13 @@
 #define ENABLE_ERR_IRQ 0x00004000
 #define ENABLE_ALL_IRQ 0x00007000
 
+#define DMA_POLL_TIMEOUT_MS 100
+
 unsigned int write_dma(unsigned int *virtual_addr, int offset, unsigned int value);
 unsigned int read_dma(unsigned int *virtual_addr, int offset);
-int dma_s2mm_sync(unsigned int *virtual_addr, uint32_t* cmdID, uint32_t* running, pthread_mutex_t* mtx);
+int  dma_s2mm_sync(unsigned int *virtual_addr);
 void dma_init_s2mm(unsigned int *virtual_addr);
 void dma_set_buffer(unsigned int *virtual_addr, unsigned int dest_addr);
-void dma_transfer_s2mm(unsigned int *virtual_addr, unsigned int bytes_num, uint32_t* cmdID, uint32_t* running, pthread_mutex_t* mtx);
+void dma_transfer_s2mm(unsigned int *virtual_addr, unsigned int bytes_num);
 
 #endif

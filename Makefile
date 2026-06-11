@@ -1,4 +1,4 @@
-TARGET  := ethCmdPBR
+TARGET  := ethCmd
 CC      := gcc
 SRCS    := $(wildcard *.c)
 OBJS    := $(SRCS:.c=.o)

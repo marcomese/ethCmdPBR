@@ -2,7 +2,6 @@
 #include "tcpserver.h"
 #include "acquisition.h"
 #include "gps.h"
-#include "isr.h"
 
 int main(){
     const int keepalive = TCP_KEEPALIVE_ON;
@@ -13,12 +12,10 @@ int main(){
     cmdDecodeArgs_t cmdDecodeArg[CONN_MAX];
     chkFifoArgs_t chkFifoArg;
     gpsCtrlArgs_t gpsArg[GPS_NUM];
-    isrArgs_t isrArg;
     pthread_mutex_t poolMtx = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t mtx     = PTHREAD_MUTEX_INITIALIZER;
     pthread_t chkSttID;
     pthread_t gpsCtrlID[GPS_NUM];
-    pthread_t isrID;
     int listenfd = 0;
     int connfd = 0;
     struct sockaddr_in serv_addr;
@@ -156,12 +153,6 @@ int main(){
             fprintf(stderr,"\tERR: Cannot create gpsCtrl thread for GPS%d, program must be restarted: [%s]\n", i+1, strerror(err));
             return -1;
         }
-    }
-
-    err = pthread_create(&isrID, NULL, &isrThread, (void*)&isrArg);
-    if(err != 0){
-        fprintf(stderr,"\tERR: Cannot create isr thread, program must be restarted: [%s]\n", strerror(err));
-        return -1;
     }
 
     while (1)
