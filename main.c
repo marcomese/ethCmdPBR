@@ -4,9 +4,6 @@
 #include "gps.h"
 #include "isr.h"
 
-pthread_mutex_t poolMtx = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mtx     = PTHREAD_MUTEX_INITIALIZER;
-
 int main(){
     const int keepalive = TCP_KEEPALIVE_ON;
     const int keepidle  = TCP_KEEPIDLE_SEC;
@@ -17,6 +14,8 @@ int main(){
     chkFifoArgs_t chkFifoArg;
     gpsCtrlArgs_t gpsArg[GPS_NUM];
     isrArgs_t isrArg;
+    pthread_mutex_t poolMtx = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t mtx     = PTHREAD_MUTEX_INITIALIZER;
     pthread_t chkSttID;
     pthread_t gpsCtrlID[GPS_NUM];
     pthread_t isrID;
