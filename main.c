@@ -131,11 +131,16 @@ int main(){
         return -1;
     }
 
+
     chkFifoArg.regs     = &axiRegs;
     chkFifoArg.cmdID    = &cmdID;
     chkFifoArg.fifoData = fifoData;
     chkFifoArg.gpsStr   = gpsStr;
+    chkFifoArg.fdTrg    = openUioByName("trig");
     chkFifoArg.mtx      = &mtx;
+
+    if(chkFifoArg.fdTrg < 0)
+        fprintf(stderr,"Error in opening UIO for trig\n");
 
     err = pthread_create(&chkSttID, NULL, &checkFifoThread, (void*)&chkFifoArg);
     if(err != 0){
