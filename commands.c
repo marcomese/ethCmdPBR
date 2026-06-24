@@ -95,7 +95,7 @@ static void writeCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
 static void readCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
     uint32_t regVal = 0;
     char resStr[TCP_SND_BUF] = "";
-    uint32_t* reg;
+    volatile uint32_t* reg;
     
     switch(c->cmdVal){
         case READ_STATUS:

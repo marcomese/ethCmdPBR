@@ -21,7 +21,7 @@ int main(){
     int listenfd = 0;
     int connfd = 0;
     struct sockaddr_in serv_addr;
-    uint32_t* fifoData;
+    volatile uint32_t* fifoData;
     uint32_t cmdID = NONE;
     int err = -1;
     int tries = 0;
@@ -40,80 +40,115 @@ int main(){
 
     for(int i = 0; i < GPS_NUM; i++){
         cfgIrq[i] = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-        if(cfgIrq[i] < 0)
+        if(cfgIrq[i] < 0){
             fprintf(stderr, "Error in initializing cfgIrq[%d]!\n", i);
+            exit(EXIT_FAILURE);
+        }
     }
 
     fd = openUioByName("AXIRegister@43c00000");
-    if(fd < 0)
+    if(fd < 0){
         fprintf(stderr,"Error in opening UIO for AXIRegister@43c00000 (commands register)\n");
+        exit(EXIT_FAILURE);
+    }
 
     mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED)
+    if(mmapRet == MAP_FAILED){
         fprintf(stderr,"Error in mapping CTRL_REG_ADDR\n");
+        exit(EXIT_FAILURE);
+    }
 
     axiRegs.ctrlReg = (uint32_t*)mmapRet;
 
+    close(fd);
+
     fd = openUioByName("AXIStatusReg@43c10000");
-    if(fd < 0)
+    if(fd < 0){
         fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c10000 (status and counters register)\n");
+        exit(EXIT_FAILURE);
+    }
 
     mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED)
+    if(mmapRet == MAP_FAILED){
         fprintf(stderr,"Error in mapping STATUS_REG_ADDR\n");
+        exit(EXIT_FAILURE);
+    }
 
     axiRegs.statusReg = (uint32_t*)mmapRet;
 
+    close(fd);
+
     fd  = openUioByName("AXIStatusReg@43c20000");
-    if(fd < 0)
+    if(fd < 0){
         fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c20000 (l1 counters register)\n");
+        exit(EXIT_FAILURE);
+    }
 
     mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED)
+    if(mmapRet == MAP_FAILED){
         fprintf(stderr,"Error in mapping L1CNT_REG_ADDR\n");
+        exit(EXIT_FAILURE);
+    }
 
     axiRegs.l1CntReg = (uint32_t*)mmapRet;
 
+    close(fd);
+
     fd  = openUioByName("AXIStatusReg@43c30000");
-    if(fd < 0)
+    if(fd < 0){
         fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c30000 (pps, alive/dead counters and trg flag register)\n");
+        exit(EXIT_FAILURE);
+    }
 
     mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED)
+    if(mmapRet == MAP_FAILED){
         fprintf(stderr,"Error in mapping PPSADFL_REG_ADDR\n");
+        exit(EXIT_FAILURE);
+    }
 
     axiRegs.ppsadflReg = (uint32_t*)mmapRet;
 
+    close(fd);
+
     fd = openUioByName("dma@40400000");
-    if(fd < 0)
+    if(fd < 0){
         fprintf(stderr,"Error in opening UIO for dma@40400000 (DMA)\n");
+        exit(EXIT_FAILURE);
+    }
 
     mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED)
+    if(mmapRet == MAP_FAILED){
         fprintf(stderr,"Error in mapping DMA\n");
+        exit(EXIT_FAILURE);
+    }
 
     axiRegs.dmaReg = (uint32_t*)mmapRet;
 
+    close(fd);
+
     fd = openUioByName("dma_buffer");
-    if(fd < 0)
+    if(fd < 0){
         fprintf(stderr,"Error in opening UIO for dma_buffer (DMA pool)\n");
+        exit(EXIT_FAILURE);
+    }
 
     mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED)
+    if(mmapRet == MAP_FAILED){
         fprintf(stderr,"Error in mapping DATA_ADDR\n");
+        exit(EXIT_FAILURE);
+    }
 
-    fifoData = (uint32_t*)mmapRet;
+    fifoData = (volatile uint32_t*)mmapRet;
+
+    close(fd);
 
     printf("Initializing DMA...\n");
     dma_init_s2mm(axiRegs.dmaReg);
-    printf("S2MM ctrl=0x%08x status=0x%08x\n",
-       read_dma(axiRegs.dmaReg, S2MM_CONTROL_REGISTER),
-       read_dma(axiRegs.dmaReg, S2MM_STATUS_REGISTER));
     dma_set_buffer(axiRegs.dmaReg, DATA_ADDR);
     printf("DMA Initialized!\n");
 
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
-    memset(&serv_addr, '0', sizeof(serv_addr));
+    memset(&serv_addr, 0, sizeof(serv_addr));
 
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -132,7 +167,7 @@ int main(){
 
     if(tries >= BIND_MAX_TRIES){
         fprintf(stderr,"Cannot bind to socket, program must be restarted\n");
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
     tries = 0;
@@ -150,7 +185,7 @@ int main(){
 
     if(tries >= LISTEN_MAX_TRIES){
         fprintf(stderr,"Cannot listen to socket, program must be restarted\n");
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
 
@@ -161,26 +196,30 @@ int main(){
     chkFifoArg.fdTrg    = openUioByName("trig");
     chkFifoArg.mtx      = &mtx;
 
-    if(chkFifoArg.fdTrg < 0)
+    if(chkFifoArg.fdTrg < 0){
         fprintf(stderr,"Error in opening UIO for trig\n");
+        exit(EXIT_FAILURE);
+    }
 
     err = pthread_create(&chkSttID, NULL, &checkFifoThread, (void*)&chkFifoArg);
     if(err != 0){
         fprintf(stderr,"\tERR: Cannot create checkFifo thread, program must be restarted: [%s]\n", strerror(err));
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
     gpsCfgIrqArg.fdCfgIrq = openUioByName("gps_conf");
     gpsCfgIrqArg.cfgIrqs  = cfgIrq;
     gpsCfgIrqArg.mtx      = &mtx;
 
-    if(gpsCfgIrqArg.fdCfgIrq < 0)
+    if(gpsCfgIrqArg.fdCfgIrq < 0){
         fprintf(stderr,"Error in opening UIO for gps_conf\n");
+        exit(EXIT_FAILURE);
+    }
 
     err = pthread_create(&gpsCfgIrqID, NULL, &gpsCfgIrqThread, (void*)&gpsCfgIrqArg);
     if(err != 0){
         fprintf(stderr,"\tERR: Cannot create gpsCfgIrq thread, program must be restarted: [%s]\n", strerror(err));
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
     for(int i = 0; i < GPS_NUM; i++){
@@ -192,7 +231,7 @@ int main(){
         err = pthread_create(&gpsCtrlID[i], NULL, &gpsCtrlThread, (void*)&gpsArg[i]);
         if(err != 0){
             fprintf(stderr,"\tERR: Cannot create gpsCtrl thread for GPS%d, program must be restarted: [%s]\n", i+1, strerror(err));
-            return -1;
+            exit(EXIT_FAILURE);
         }
     }
 

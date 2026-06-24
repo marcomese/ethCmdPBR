@@ -74,7 +74,7 @@ typedef struct cmdDecodeArgs{
 typedef struct chkFifoArgs{
     axiRegisters_t*  regs;
     uint32_t*        cmdID;
-    uint32_t*        fifoData;
+    volatile uint32_t* fifoData;
     char*            gpsStr;
     int              fdTrg;
     pthread_mutex_t* mtx;

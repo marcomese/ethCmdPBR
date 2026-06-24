@@ -75,24 +75,27 @@ void* checkFifoThread(void *arg){
                     }
 
                     outFile = fopen(fileName, "ab");
+                    if(outFile != NULL){
+                        memset(data.gpsStr, '\0', DATA_GPS_BYTES);
+                        data.header    = DATA_HEADER;
+                        pthread_mutex_lock(chkArg->mtx);
+                        data.unixTime  = (uint32_t)time(NULL);
+                        data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
+                        data.gtuCount  = *(chkArg->fifoData+GTUCNT_IDX);
+                        data.trgFlag   = *(chkArg->fifoData+TRGFLG_IDX);
+                        data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
+                        data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
+                        data.status    = *(chkArg->fifoData+STATUS_IDX);
+                        memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
+                        pthread_mutex_unlock(chkArg->mtx);
 
-                    memset(data.gpsStr, '\0', DATA_GPS_BYTES);
-                    data.header    = DATA_HEADER;
-                    pthread_mutex_lock(chkArg->mtx);
-                    data.unixTime  = (uint32_t)time(NULL);
-                    data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
-                    data.gtuCount  = *(chkArg->fifoData+GTUCNT_IDX);
-                    data.trgFlag   = *(chkArg->fifoData+TRGFLG_IDX);
-                    data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
-                    data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
-                    data.status    = *(chkArg->fifoData+STATUS_IDX);
-                    memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
-                    pthread_mutex_unlock(chkArg->mtx);
+                        data.crc = crc_32((unsigned char *)&data, sizeof(data)-sizeof(data.crc), startCRC32);
 
-                    data.crc = crc_32((unsigned char *)&data, sizeof(data)-sizeof(data.crc), startCRC32);
-
-                    fwrite(&data, sizeof(data), 1, outFile);
-                    fclose(outFile);
+                        fwrite(&data, sizeof(data), 1, outFile);
+                        fclose(outFile);
+                    }else{
+                        fprintf(stderr, "Error in opening file %s\n", fileName);
+                    }
                 }
             }
 

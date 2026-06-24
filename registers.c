@@ -56,13 +56,13 @@ int openUioByName(const char *name) {
     return -1;
 }
 
-uint32_t readReg(uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr){
+uint32_t readReg(volatile uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr){
     uint32_t offset = getOffset(baseAddr, regAddr);
     return *(devAddr + offset);
 }
 
-void writeReg(uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr, uint32_t data){
+void writeReg(volatile uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr, uint32_t data){
     uint32_t offset = getOffset(baseAddr, regAddr);
     *(devAddr + offset) = data;
-    msync(devAddr,  AXI_MAP_SIZE, MS_SYNC); 
+    msync((void*)devAddr,  AXI_MAP_SIZE, MS_SYNC);
 }
