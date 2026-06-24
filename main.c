@@ -22,7 +22,6 @@ int main(){
     int connfd = 0;
     struct sockaddr_in serv_addr;
     volatile uint32_t* fifoData;
-    uint32_t cmdID = NONE;
     int err = -1;
     int tries = 0;
     void* mmapRet = NULL;
@@ -30,9 +29,10 @@ int main(){
     int cfgIrq[GPS_NUM] = {0, 0};
     char gpsStr[DATA_GPS_BYTES] = "";
 
+    sortCmd();
+
     for(int i = 0; i < CONN_MAX; i++){
         cmdDecodeArg[i].regs    = &axiRegs;
-        cmdDecodeArg[i].cmdID   = &cmdID;
         cmdDecodeArg[i].inUse   = 0;
         cmdDecodeArg[i].mtx     = &mtx;
         cmdDecodeArg[i].poolMtx = &poolMtx;
@@ -190,7 +190,6 @@ int main(){
 
 
     chkFifoArg.regs     = &axiRegs;
-    chkFifoArg.cmdID    = &cmdID;
     chkFifoArg.fifoData = fifoData;
     chkFifoArg.gpsStr   = gpsStr;
     chkFifoArg.fdTrg    = openUioByName("trig");

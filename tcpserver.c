@@ -44,8 +44,6 @@ void* cmdDecodeThread(void *arg){
                     rxBuf[rxLen] = '\0';
                     pthread_mutex_lock(cmdArg->mtx);
                     uint32_t cmd = decodeCmdStr(cmdArg->regs, cmdArg->connfd, rxBuf, rxLen);
-                    if(cmd != EXIT)
-                        *cmdArg->cmdID = cmd;
                     pthread_mutex_unlock(cmdArg->mtx);
                     rxLen = 0;
 

@@ -79,6 +79,8 @@ typedef struct cmd{
     const char* cmdDesc;
 } cmd_t;
 
+uint8_t sortCmd(void);
+
 uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* ethStr, int nBytes);
 
 #endif

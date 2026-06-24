@@ -30,7 +30,6 @@ void* checkFifoThread(void *arg){
     chkFifoArgs_t* chkArg = (chkFifoArgs_t*)arg;
     uint32_t statusReg = 0;
     uint32_t running = 0;
-    uint32_t cmdIDLocal = NONE;
     uint32_t eventCounter = 0;
     uint32_t fileCounter = 0;
     uint32_t count = 1;
@@ -55,12 +54,8 @@ void* checkFifoThread(void *arg){
         }
 
         pthread_mutex_lock(chkArg->mtx);
-        cmdIDLocal = *chkArg->cmdID;
         statusReg  = *(chkArg->regs->statusReg);
         pthread_mutex_unlock(chkArg->mtx);
-
-        if(cmdIDLocal == EXIT)
-            break;
 
         running = statusReg & RUN_STATUS_MASK;
 

@@ -191,7 +191,7 @@ static void help(axiRegisters_t *regDev, int connfd, cmd_t *c){
 
         snprintf(cStr, CMD_MAX_LEN+DESC_MAX_LEN, "%s:\n\t%s\n", commands[i].cmdStr, commands[i].cmdDesc);
 
-        printf(cStr);
+        printf("%s", cStr);
 
         write(connfd, cStr, strlen(cStr));
     }
@@ -201,12 +201,16 @@ static int compare(const void *p1, const void *p2){
     return strcmp(*((const char **)p1), *((const char **)p2));
 }
 
-static cmd_t *getCmd(const char *name){
+uint8_t sortCmd(void){
     if (!sorted){
         qsort(commands, COUNT(commands), sizeof(*commands), compare);
         sorted = 1;
     }
 
+    return sorted;
+}
+
+static cmd_t *getCmd(const char *name){
     cmd_t *item = (cmd_t *)bsearch(&name, commands, COUNT(commands), sizeof(*commands), compare);
 
     return item;
