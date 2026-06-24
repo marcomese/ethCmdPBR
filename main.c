@@ -11,10 +11,12 @@ int main(){
     axiRegisters_t axiRegs;
     cmdDecodeArgs_t cmdDecodeArg[CONN_MAX];
     chkFifoArgs_t chkFifoArg;
+    gpsCfgIrqArgs_t gpsCfgIrqArg;
     gpsCtrlArgs_t gpsArg[GPS_NUM];
     pthread_mutex_t poolMtx = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t mtx     = PTHREAD_MUTEX_INITIALIZER;
     pthread_t chkSttID;
+    pthread_t gpsCfgIrqID;
     pthread_t gpsCtrlID[GPS_NUM];
     int listenfd = 0;
     int connfd = 0;
@@ -25,6 +27,7 @@ int main(){
     int tries = 0;
     void* mmapRet = NULL;
     int fd   = 0;
+    int cfgIrq[GPS_NUM] = {0, 0};
     char gpsStr[DATA_GPS_BYTES] = "";
 
     for(int i = 0; i < CONN_MAX; i++){
@@ -33,6 +36,12 @@ int main(){
         cmdDecodeArg[i].inUse   = 0;
         cmdDecodeArg[i].mtx     = &mtx;
         cmdDecodeArg[i].poolMtx = &poolMtx;
+    }
+
+    for(int i = 0; i < GPS_NUM; i++){
+        cfgIrq[i] = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+        if(cfgIrq[i] < 0)
+            fprintf(stderr, "Error in initializing cfgIrq[%d]!\n", i);
     }
 
     fd = openUioByName("AXIRegister@43c00000");
@@ -65,6 +74,16 @@ int main(){
 
     axiRegs.l1CntReg = (uint32_t*)mmapRet;
 
+    fd  = openUioByName("AXIStatusReg@43c30000");
+    if(fd < 0)
+        fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c30000 (pps, alive/dead counters and trg flag register)\n");
+
+    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if(mmapRet == MAP_FAILED)
+        fprintf(stderr,"Error in mapping PPSADFL_REG_ADDR\n");
+
+    axiRegs.ppsadflReg = (uint32_t*)mmapRet;
+
     fd = openUioByName("dma@40400000");
     if(fd < 0)
         fprintf(stderr,"Error in opening UIO for dma@40400000 (DMA)\n");
@@ -87,6 +106,9 @@ int main(){
 
     printf("Initializing DMA...\n");
     dma_init_s2mm(axiRegs.dmaReg);
+    printf("S2MM ctrl=0x%08x status=0x%08x\n",
+       read_dma(axiRegs.dmaReg, S2MM_CONTROL_REGISTER),
+       read_dma(axiRegs.dmaReg, S2MM_STATUS_REGISTER));
     dma_set_buffer(axiRegs.dmaReg, DATA_ADDR);
     printf("DMA Initialized!\n");
 
@@ -148,10 +170,24 @@ int main(){
         return -1;
     }
 
+    gpsCfgIrqArg.fdCfgIrq = openUioByName("gps_conf");
+    gpsCfgIrqArg.cfgIrqs  = cfgIrq;
+    gpsCfgIrqArg.mtx      = &mtx;
+
+    if(gpsCfgIrqArg.fdCfgIrq < 0)
+        fprintf(stderr,"Error in opening UIO for gps_conf\n");
+
+    err = pthread_create(&gpsCfgIrqID, NULL, &gpsCfgIrqThread, (void*)&gpsCfgIrqArg);
+    if(err != 0){
+        fprintf(stderr,"\tERR: Cannot create gpsCfgIrq thread, program must be restarted: [%s]\n", strerror(err));
+        return -1;
+    }
+
     for(int i = 0; i < GPS_NUM; i++){
         gpsArg[i].idx    = i;
         gpsArg[i].gpsStr = gpsStr + i*GPS_SLOT_LEN;
         gpsArg[i].mtx    = &mtx;
+        gpsArg[i].cfgIrq = cfgIrq[i];
 
         err = pthread_create(&gpsCtrlID[i], NULL, &gpsCtrlThread, (void*)&gpsArg[i]);
         if(err != 0){

@@ -17,6 +17,7 @@
 #include <time.h>
 #include <termios.h>
 #include <poll.h>
+#include <sys/eventfd.h>
 #include "commands.h"
 #include "registers.h"
 #include "dma.h"
@@ -35,7 +36,6 @@
 #define GPS_NUM        2
 #define GPS_DEV_BASE   "/dev/ttyUL"
 #define GPS_DEV_LEN    (sizeof(GPS_DEV_BASE) + 4)
-#define GPS_CONF_STR   0x02286D0200029903
 #define GPS_TOK        "$PTNL"
 #define GPS_TOK_LEN    5
 #define GPS_LINE_LEN   128
@@ -83,8 +83,15 @@ typedef struct chkFifoArgs{
 typedef struct gpsCtrlArgs{
     int              idx;
     char*            gpsStr;
+    int              cfgIrq;
     pthread_mutex_t* mtx;
 } gpsCtrlArgs_t;
+
+typedef struct gpsCfgIrqArgs{
+    int              fdCfgIrq;
+    int*             cfgIrqs;
+    pthread_mutex_t* mtx;
+} gpsCfgIrqArgs_t;
 
 typedef struct pbrData{
     uint32_t     header;

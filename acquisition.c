@@ -68,32 +68,32 @@ void* checkFifoThread(void *arg){
             read(chkArg->fdTrg, &count, sizeof(count));
 
             if(running){
-                dma_transfer_s2mm(chkArg->regs->dmaReg, DATA_PL_BYTES);
+                if(dma_transfer_s2mm(chkArg->regs->dmaReg, DATA_PL_BYTES) == 0){
+                    if(!(eventCounter++ % TRG_NUM_PER_FILE)){
+                        unlockFile(fileName);
+                        genFileName(fileCounter++, fileName, FILENAME_LEN);
+                    }
 
-                if(!(eventCounter++ % TRG_NUM_PER_FILE)){
-                    unlockFile(fileName);
-                    genFileName(fileCounter++, fileName, FILENAME_LEN);
+                    outFile = fopen(fileName, "ab");
+
+                    memset(data.gpsStr, '\0', DATA_GPS_BYTES);
+                    data.header    = DATA_HEADER;
+                    pthread_mutex_lock(chkArg->mtx);
+                    data.unixTime  = (uint32_t)time(NULL);
+                    data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
+                    data.gtuCount  = *(chkArg->fifoData+GTUCNT_IDX);
+                    data.trgFlag   = *(chkArg->fifoData+TRGFLG_IDX);
+                    data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
+                    data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
+                    data.status    = *(chkArg->fifoData+STATUS_IDX);
+                    memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
+                    pthread_mutex_unlock(chkArg->mtx);
+
+                    data.crc = crc_32((unsigned char *)&data, sizeof(data)-sizeof(data.crc), startCRC32);
+
+                    fwrite(&data, sizeof(data), 1, outFile);
+                    fclose(outFile);
                 }
-
-                outFile = fopen(fileName, "ab");
-
-                memset(data.gpsStr, '\0', DATA_GPS_BYTES);
-                data.header    = DATA_HEADER;
-                pthread_mutex_lock(chkArg->mtx);
-                data.unixTime  = (uint32_t)time(NULL);
-                data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
-                data.gtuCount  = *(chkArg->fifoData+GTUCNT_IDX);
-                data.trgFlag   = *(chkArg->fifoData+TRGFLG_IDX);
-                data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
-                data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
-                data.status    = *(chkArg->fifoData+STATUS_IDX);
-                memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
-                pthread_mutex_unlock(chkArg->mtx);
-
-                data.crc = crc_32((unsigned char *)&data, sizeof(data)-sizeof(data.crc), startCRC32);
-
-                fwrite(&data, sizeof(data), 1, outFile);
-                fclose(outFile);
             }
 
             write(chkArg->fdTrg, &count, sizeof(count));

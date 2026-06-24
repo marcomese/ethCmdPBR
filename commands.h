@@ -22,7 +22,6 @@
 #define RELEASE_BUSY      0x55555555
 #define SET_BUSY          0xCCCCCCCC
 #define TRIGGER           0x33333333
-#define RESET_GPS         0x66666666
 #define CONFIGURE_GPS     0x99999999
 #define GPS1_ON           0xF0F0F0F0
 #define GPS2_ON           0x0F0F0F0F
@@ -34,8 +33,6 @@
 #define PPS_TRG_OFF       0x69696969
 #define MASK_EXT_TRG      0xFF00FF00
 #define UNMASK_EXT_TRG    0x00FF00FF
-#define SELF_TRG_ON       0x55AA55AA
-#define SELF_TRG_OFF      0xAA55AA55
 #define NO_ZYNQ0          0x33CC33CC
 #define NO_ZYNQ1          0xCC33CC33
 #define NO_ZYNQ2          0x99669966
@@ -48,15 +45,16 @@
 #define GPS2_NO           0x3CC33CC3
 #define GPS_AUTO_ON       0x69966996
 #define GPS_AUTO_NO       0x96699669
-#define READ_GTUCOUNTER   0xFFFF0000
-#define READ_EVTCOUNTER   0x33CCCC33
-#define READ_L10COUNTER   0xAAAA5555
-#define READ_L11COUNTER   0x3333CCCC
-#define READ_L12COUNTER   0xCCCC3333
-#define READ_L13COUNTER   0x0F0FF0F0
-#define READ_STATUS       0x00FFFF00
+#define READ_GTUCOUNTER   0x00000009
+#define READ_PPSCOUNTER   0x00000008
+#define READ_EVTCOUNTER   0x00000007
+#define READ_L10COUNTER   0x00000006
+#define READ_L11COUNTER   0x00000005
+#define READ_L12COUNTER   0x00000004
+#define READ_L13COUNTER   0x00000003
+#define READ_STATUS       0x00000002
+#define HELP              0x00000001
 #define EXIT              0x0000FFFF
-#define HELP              0x5555AAAA
 
 #define CMD_MAX_LEN          15
 
@@ -72,13 +70,13 @@ struct cmd;
 typedef void (*funcPtr_t)(axiRegisters_t* regDev, int connfd, struct cmd* cmd);
 
 typedef struct cmd{
-    const char *cmdStr;
-    uint32_t cmdVal;
-    const char *feedbackStr;
-    funcPtr_t funcPtr;
-    uint32_t baseAddr;
-    uint32_t regAddr;
-    const char *cmdDesc;
+    const char* cmdStr;
+    uint32_t    cmdVal;
+    const char* feedbackStr;
+    funcPtr_t   funcPtr;
+    uint32_t    baseAddr;
+    uint32_t    regAddr;
+    const char* cmdDesc;
 } cmd_t;
 
 uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* ethStr, int nBytes);
