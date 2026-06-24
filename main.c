@@ -148,6 +148,15 @@ int main(){
     printf("DMA Initialized!\n");
 
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
+    if(listenfd < 0){
+        fprintf(stderr,"Error in creating socket: [%s]\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    int reuse = 1;
+    if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
+        fprintf(stderr,"Warning: cannot set SO_REUSEADDR: [%s]\n", strerror(errno));
+
     memset(&serv_addr, 0, sizeof(serv_addr));
 
     serv_addr.sin_family = AF_INET;
