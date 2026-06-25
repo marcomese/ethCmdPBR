@@ -30,7 +30,7 @@ int dma_s2mm_sync(volatile unsigned int *virtual_addr){
             fprintf(stderr,"DMA S2MM error, status=0x%08x\n", s2mm_status);
             return -1;
         }
-
+/*
         if(++retries > DMA_SYNC_MAX_RETRIES){
             fprintf(stderr,"DMA S2MM sync timeout, status=0x%08x\n", s2mm_status);
             return -1;
@@ -38,7 +38,7 @@ int dma_s2mm_sync(volatile unsigned int *virtual_addr){
 
         s2mm_status = read_dma(virtual_addr, S2MM_STATUS_REGISTER);
     }
-
+*/
     write_dma(virtual_addr, S2MM_STATUS_REGISTER, IOC_IRQ_FLAG);
 
     return 0;
