@@ -25,6 +25,10 @@
 #define CONFIGURE_GPS     0x99999999
 #define GPS1_ON           0xF0F0F0F0
 #define GPS2_ON           0x0F0F0F0F
+#define CLKPPS_ON         0x33CCCC33
+#define GPS1_NO           0xC33CC33C
+#define GPS2_NO           0x3CC33CC3
+#define CLKPPS_NO         0x3333CCCC
 #define RESET_GTU_COUNT   0x5A5A5A5A
 #define RESET_L1_COUNT    0xA5A5A5A5
 #define RESET_EVT_COUNT   0x3C3C3C3C
@@ -41,8 +45,6 @@
 #define ZYNQ1_ON          0xF00FF00F
 #define ZYNQ2_ON          0xA55AA55A
 #define ZYNQ3_ON          0x5AA55AA5
-#define GPS1_NO           0xC33CC33C
-#define GPS2_NO           0x3CC33CC3
 #define GPS_AUTO_ON       0x69966996
 #define GPS_AUTO_NO       0x96699669
 #define READ_GTUCOUNTER   0x00000009
@@ -55,6 +57,10 @@
 #define READ_STATUS       0x00000002
 #define HELP              0x00000001
 #define EXIT              0x0000FFFF
+
+#define ZYNQ_NUM             4
+
+#define PPS_NUM              3
 
 #define CMD_MAX_LEN          15
 

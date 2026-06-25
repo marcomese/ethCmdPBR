@@ -2,45 +2,30 @@
 
 #define COUNT(ARRAY) (sizeof(ARRAY) / sizeof(*ARRAY))
 
-#define RUN_CTRL_POS 16U
+#define RUN_POS         0U   /* run            */
+#define RUNCTRLBUSY_POS 1U   /* runCtrlBusy    */
+#define FIFOREADY_POS   2U   /* plToAxiSBusy   */
+#define FIFOFULL_POS    3U   /* fifoFull       */
+#define BUSYCMD_POS     4U   /* cmd_busy       */
+#define PPSTRG_POS      5U   /* pps_trg        */
+#define EXTTRG_POS      6U   /* ext_trg_en     */
+#define GPSAUTO_POS     7U   /* pps_auto       */
+#define FSMSTATE_POS    8U   /* fsmState (4 bit) -> bit 11..8 */
+
+#define PARAM_BASE   13U
+#define PPSEN_POS    (PARAM_BASE)              /* PPS_NUM  bit */
+#define PPSPRES_POS  (PPSEN_POS   + PPS_NUM)   /* PPS_NUM  bit */
+#define ZQEN_POS     (PPSPRES_POS + PPS_NUM)   /* ZYNQ_NUM bit */
+#define ZQBUSY_POS   (ZQEN_POS    + ZYNQ_NUM)  /* ZYNQ_NUM bit */
+#define TRGPDM_POS   (ZQBUSY_POS  + ZYNQ_NUM)  /* ZYNQ_NUM bit */
+
+#define RUN_CTRL_POS  FSMSTATE_POS
 #define RUN_CTRL_MASK (0x0FU << RUN_CTRL_POS)
 
 static uint8_t sorted = 0;
 
 const char *errStr = "Error invalid command.\n";
 const char *invalidAddr = "Error: invalid register address.\n";
-
-const char statusIDStr[32][STATUS_ID_MAX_LEN] = {
-    "RUN=",
-    "BUSY=",
-    "FIFOREADY=",
-    "FIFOFULL=",
-    "ZQ0=",
-    "ZQ1=",
-    "ZQ2=",
-    "ZQ3=",
-    "ZQBUSY0=",
-    "ZQBUSY1=",
-    "ZQBUSY2=",
-    "ZQBUSY3=",
-    "BUSYCMD=",
-    "SELFTRGON=",
-    "PPSTRGON=",
-    "EXTTRGON=",
-    "",
-    "",
-    "",
-    "",
-    "GPS1EN=",
-    "GPS2EN=",
-    "GPS1PRES=",
-    "GPS2PRES=",
-    "GPSAUTO=",
-    "TRGPDM0=",
-    "TRGPDM1=",
-    "TRGPDM2=",
-    "TRGPDM3="
-};
 
 const char runCtrlDecode[16][STATUS_ID_MAX_LEN] = {
     "IDLE",
@@ -59,25 +44,47 @@ const char runCtrlDecode[16][STATUS_ID_MAX_LEN] = {
     "ERR",
 };
 
+static void appendBit(char* dst, const char* label, uint32_t reg, uint8_t pos){
+    char tempStr[STATUS_ID_MAX_LEN] = "";
+
+    snprintf(tempStr, STATUS_ID_MAX_LEN, "%.*s=%d ", STATUS_ID_STR_MAXLEN, label,
+             (int)((reg >> pos) & 1U));
+
+    strncat(dst, tempStr, STATUS_ID_MAX_LEN);
+}
+
+static void appendField(char* dst, const char* label, uint32_t reg, uint8_t base, uint8_t n){
+    char tempStr[STATUS_ID_MAX_LEN] = "";
+
+    for(uint8_t k = 0; k < n; k++){
+        snprintf(tempStr, STATUS_ID_MAX_LEN, "%.*s%u=%d ", STATUS_ID_STR_MAXLEN, label, k,
+                 (int)((reg >> (base + k)) & 1U));
+
+        strncat(dst, tempStr, STATUS_ID_MAX_LEN);
+    }
+}
+
 static void decodeStatusReg(uint32_t statusReg, char* statusStr){
-    uint8_t statusBit = 0;
     uint8_t runCtrlState = 0;
     char resStr[TCP_SND_BUF] = "";
     char tempStr[STATUS_ID_MAX_LEN] = "";
 
     runCtrlState = (statusReg & RUN_CTRL_MASK) >> RUN_CTRL_POS;
 
-    for(int i = 0; i < 32; i++){
-        if(strncmp(statusIDStr[i],"",STATUS_ID_MAX_LEN) != 0){
-            memset(tempStr, '\0', STATUS_ID_MAX_LEN);
-            
-            statusBit = ((statusReg & (1 << i)) >> i) & 1;
+    appendBit(resStr, "RUN",       statusReg, RUN_POS);
+    appendBit(resStr, "BUSY",      statusReg, RUNCTRLBUSY_POS);
+    appendBit(resStr, "FIFOREADY", statusReg, FIFOREADY_POS);
+    appendBit(resStr, "FIFOFULL",  statusReg, FIFOFULL_POS);
+    appendBit(resStr, "BUSYCMD",   statusReg, BUSYCMD_POS);
+    appendBit(resStr, "PPSTRGON",  statusReg, PPSTRG_POS);
+    appendBit(resStr, "EXTTRGON",  statusReg, EXTTRG_POS);
+    appendBit(resStr, "GPSAUTO",   statusReg, GPSAUTO_POS);
 
-            snprintf(tempStr, STATUS_ID_MAX_LEN, "%.*s%d ", STATUS_ID_STR_MAXLEN, statusIDStr[i], statusBit & 1);
-
-            strncat(resStr, tempStr, STATUS_ID_MAX_LEN);
-        }
-    }
+    appendField(resStr, "PPSEN",   statusReg, PPSEN_POS,   PPS_NUM);
+    appendField(resStr, "PPSPRES", statusReg, PPSPRES_POS, PPS_NUM);
+    appendField(resStr, "ZQ",      statusReg, ZQEN_POS,    ZYNQ_NUM);
+    appendField(resStr, "ZQBUSY",  statusReg, ZQBUSY_POS,  ZYNQ_NUM);
+    appendField(resStr, "TRGPDM",  statusReg, TRGPDM_POS,  ZYNQ_NUM);
 
     snprintf(tempStr, STATUS_ID_MAX_LEN, "RUNCTRL=%s\n", runCtrlDecode[runCtrlState]);
 
@@ -148,12 +155,14 @@ static cmd_t commands[] = {
     {"set busy",      SET_BUSY,        "SET BUSY\n",        writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Set the clkBoard busy signal"},
     {"trg",           TRIGGER,         "TRIGGER\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Send a software trigger signal"},
     {"gps configure", CONFIGURE_GPS,   "CONFIGURE GPS\n",   writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Configure the GPSs (all of them)"},
-    {"gps1 on",       GPS1_ON,         "GPS1 ON\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the GPS1"},
-    {"gps2 on",       GPS2_ON,         "GPS2 ON\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the GPS2"},
-    {"gps1 no",       GPS1_NO,         "NO GPS1\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the GPS1"},
-    {"gps2 no",       GPS2_NO,         "NO GPS2\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the GPS2"},
-    {"gpsauto on",    GPS_AUTO_ON,     "GPS AUTO ON\n",     writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the auto selection of PPS (from GPS)"},
-    {"gpsauto no",    GPS_AUTO_NO,     "GPS AUTO NO\n",     writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the auto selection of PPS (from GPS)"},
+    {"gps1 on",       GPS1_ON,         "GPS1 ON\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the PPS from GPS1"},
+    {"gps2 on",       GPS2_ON,         "GPS2 ON\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the PPS from GPS2"},
+    {"clkpps on",     CLKPPS_ON,       "CLKPPS ON\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the PPS from CC clkBoard"},
+    {"gps1 no",       GPS1_NO,         "NO GPS1\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the PPS from GPS1"},
+    {"gps2 no",       GPS2_NO,         "NO GPS2\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the PPS from GPS2"},
+    {"clkpps no",     CLKPPS_NO,       "NO CLKPPS\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the PPS from CC clkBoard"},
+    {"gpsauto on",    GPS_AUTO_ON,     "GPS AUTO ON\n",     writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the auto selection of PPS"},
+    {"gpsauto no",    GPS_AUTO_NO,     "GPS AUTO NO\n",     writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the auto selection of PPS"},
     {"gtu reset",     RESET_GTU_COUNT, "RESET GTU COUNT\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the GTU counter"},
     {"evt reset",     RESET_EVT_COUNT, "RESET EVT COUNT\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the event counter"},
     {"l1 reset",      RESET_L1_COUNT,  "RESET L1 COUNT\n",  writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the L1 counters"},
