@@ -2,6 +2,7 @@
 #include "tcpserver.h"
 #include "acquisition.h"
 #include "gps.h"
+#include "imu.h"
 
 int main(){
     const int keepalive = TCP_KEEPALIVE_ON;
@@ -11,6 +12,8 @@ int main(){
     axiRegisters_t axiRegs;
     cmdDecodeArgs_t cmdDecodeArg[CONN_MAX];
     chkFifoArgs_t chkFifoArg;
+    imuThreadArgs_t imuArgs;
+    imuShared_t imuShared = {0};
     gpsCfgIrqArgs_t gpsCfgIrqArg;
     gpsCtrlArgs_t gpsArg[GPS_NUM];
     pthread_mutex_t poolMtx = PTHREAD_MUTEX_INITIALIZER;
@@ -197,6 +200,16 @@ int main(){
         exit(EXIT_FAILURE);
     }
 
+
+    imuArgs.mtx = &mtx;
+    if(imuInit(&imuArgs, &imuShared) == 0){
+        chkFifoArg.imuArgs   = &imuArgs;
+        chkFifoArg.imuShared = &imuShared;
+    }else{
+        fprintf(stderr,"IMU not available, continuing without it\n");
+        chkFifoArg.imuArgs   = NULL;
+        chkFifoArg.imuShared = NULL;
+    }
 
     chkFifoArg.regs     = &axiRegs;
     chkFifoArg.fifoData = fifoData;

@@ -1,4 +1,5 @@
 #include "acquisition.h"
+#include "imu.h"
 
 static void genFileName(uint32_t fileCounter, char* fileName, uint32_t fileNameLen){
     time_t rawtime = time(NULL);
@@ -33,8 +34,10 @@ void* checkFifoThread(void *arg){
     uint32_t eventCounter = 0;
     uint32_t fileCounter = 0;
     uint32_t count = 1;
+    int imuRunning = 0;
+    pthread_t imuTid;
     char fileName[FILENAME_LEN] = "";
-    pbrData_t data = {0, 0, 0, 0, 0, 0, 0, 0, "", 0};
+    pbrData_t data = {0};
 
     struct pollfd pfd = {
         .fd     = chkArg->fdTrg,
@@ -58,6 +61,17 @@ void* checkFifoThread(void *arg){
         pthread_mutex_unlock(chkArg->mtx);
 
         running = statusReg & RUN_STATUS_MASK;
+
+        /* IMU buffer follows the run state: start on run, stop on stop */
+        if(chkArg->imuArgs != NULL){
+            if(running && !imuRunning){
+                if(imuStart(chkArg->imuArgs, &imuTid) == 0)
+                    imuRunning = 1;
+            }else if(!running && imuRunning){
+                imuStop(chkArg->imuArgs, imuTid);
+                imuRunning = 0;
+            }
+        }
 
         if(ret > 0 && (pfd.revents & POLLIN)){
             read(chkArg->fdTrg, &count, sizeof(count));
@@ -83,6 +97,11 @@ void* checkFifoThread(void *arg){
                         data.status    = *(chkArg->fifoData+STATUS_IDX);
                         memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
                         pthread_mutex_unlock(chkArg->mtx);
+
+                        /* latest IMU snapshot: separate critical section, since
+                         * imuGetSnapshot locks mtx internally (no nesting) */
+                        if(chkArg->imuShared != NULL)
+                            imuGetSnapshot(chkArg->imuShared, chkArg->mtx, &data.imu);
 
                         data.crc = crc_32((unsigned char *)&data, sizeof(data)-sizeof(data.crc), startCRC32);
 

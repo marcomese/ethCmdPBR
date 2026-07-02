@@ -62,6 +62,37 @@
 
 #define RUN_STATUS_MASK 0x01
 
+#define IMU_SCAN_SIZE 56
+
+typedef struct __attribute__((packed)) {
+    int16_t accel[3];
+    int16_t magn[3];
+    int16_t anglvel[3];
+    int16_t yaw;
+    int16_t roll;
+    int16_t pitch;
+    int16_t quat[4];
+    int16_t accel_linear[3];
+    int16_t gravity[3];
+    uint8_t _pad[4];
+    int64_t timestamp;
+} imuRaw_t;
+
+_Static_assert(sizeof(imuRaw_t) == IMU_SCAN_SIZE, "imuRaw_t layout mismatch");
+
+typedef struct {
+    imuRaw_t latest;
+    int      valid;
+} imuShared_t;
+
+typedef struct {
+    char             devNode[64];
+    char             sysBase[128];
+    imuShared_t*     shared;
+    pthread_mutex_t* mtx;
+    int              evfdStop;
+} imuThreadArgs_t;
+
 typedef struct cmdDecodeArgs{
     axiRegisters_t*  regs;
     int              connfd;
@@ -76,6 +107,8 @@ typedef struct chkFifoArgs{
     char*            gpsStr;
     int              fdTrg;
     pthread_mutex_t* mtx;
+    imuShared_t*     imuShared;
+    imuThreadArgs_t* imuArgs;
 } chkFifoArgs_t;
 
 typedef struct gpsCtrlArgs{
@@ -101,6 +134,7 @@ typedef struct pbrData{
     uint32_t     deadTime;
     uint32_t     status;
     char         gpsStr[DATA_GPS_BYTES];
+    imuRaw_t     imu;
     unsigned int crc;
 } pbrData_t;
 
