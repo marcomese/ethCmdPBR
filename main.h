@@ -108,7 +108,7 @@ typedef struct chkFifoArgs{
     volatile uint32_t* fifoData;
     char*            gpsStr;
     int              fdTrg;
-    uint32_t         header;
+    uint32_t*        header;
     pthread_mutex_t* mtx;
     imuShared_t*     imuShared;
     imuThreadArgs_t* imuArgs;
