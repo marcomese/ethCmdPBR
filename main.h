@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -106,6 +108,7 @@ typedef struct chkFifoArgs{
     volatile uint32_t* fifoData;
     char*            gpsStr;
     int              fdTrg;
+    uint32_t         header;
     pthread_mutex_t* mtx;
     imuShared_t*     imuShared;
     imuThreadArgs_t* imuArgs;

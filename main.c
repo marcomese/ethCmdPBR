@@ -24,11 +24,13 @@ int main(){
     int listenfd = 0;
     int connfd = 0;
     struct sockaddr_in serv_addr;
+    struct ifreq s;
     volatile uint32_t* fifoData;
     int err = -1;
     int tries = 0;
     void* mmapRet = NULL;
     int fd   = 0;
+    uint32_t header = 0;
     int cfgIrq[GPS_NUM] = {0, 0};
     char gpsStr[DATA_GPS_BYTES] = "";
 
@@ -211,6 +213,13 @@ int main(){
         chkFifoArg.imuShared = NULL;
     }
 
+    strncpy(s.ifr_name, "end0", IFNAMSIZ);
+    if(ioctl(fd, SIOCGIFHWADDR, &s)==0)
+        header =  (((s.ifr_addr.sa_data[5] & 0x0F)+0x30) << 24) | (DATA_HEADER & 0x00FFFFFF);
+    else
+        header = DATA_HEADER;
+
+    chkFifoArg.header   = &header;
     chkFifoArg.regs     = &axiRegs;
     chkFifoArg.fifoData = fifoData;
     chkFifoArg.gpsStr   = gpsStr;

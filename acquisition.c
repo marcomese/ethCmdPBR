@@ -86,7 +86,7 @@ void* checkFifoThread(void *arg){
                     outFile = fopen(fileName, "ab");
                     if(outFile != NULL){
                         memset(data.gpsStr, '\0', DATA_GPS_BYTES);
-                        data.header    = DATA_HEADER;
+                        data.header    = chkArg->header;
                         pthread_mutex_lock(chkArg->mtx);
                         data.unixTime  = (uint32_t)time(NULL);
                         data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
