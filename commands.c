@@ -2,22 +2,25 @@
 
 #define COUNT(ARRAY) (sizeof(ARRAY) / sizeof(*ARRAY))
 
+/* status_register: blocco a posizioni FISSE (bit 11..0) */
 #define RUN_POS         0U   /* run            */
 #define RUNCTRLBUSY_POS 1U   /* runCtrlBusy    */
 #define FIFOREADY_POS   2U   /* plToAxiSBusy   */
 #define FIFOFULL_POS    3U   /* fifoFull       */
 #define BUSYCMD_POS     4U   /* cmd_busy       */
 #define PPSTRG_POS      5U   /* pps_trg        */
-#define EXTTRG_POS      6U   /* ext_trg_en     */
-#define GPSAUTO_POS     7U   /* pps_auto       */
-#define FSMSTATE_POS    8U   /* fsmState (4 bit) -> bit 11..8 */
+#define GPSAUTO_POS     6U   /* pps_auto       */
+#define FSMSTATE_POS    7U   /* fsmState (4 bit) -> bit 10..7 */
+/* bit 11: reserved */
 
-#define PARAM_BASE   13U
-#define PPSEN_POS    (PARAM_BASE)              /* PPS_NUM  bit */
-#define PPSPRES_POS  (PPSEN_POS   + PPS_NUM)   /* PPS_NUM  bit */
-#define ZQEN_POS     (PPSPRES_POS + PPS_NUM)   /* ZYNQ_NUM bit */
-#define ZQBUSY_POS   (ZQEN_POS    + ZYNQ_NUM)  /* ZYNQ_NUM bit */
-#define TRGPDM_POS   (ZQBUSY_POS  + ZYNQ_NUM)  /* ZYNQ_NUM bit */
+/* status_register: blocco PARAMETRICO (impilato dal bit 12) */
+#define PARAM_BASE   12U
+#define EXTTRG_POS   (PARAM_BASE)               /* EXTTRG_NUM bit */
+#define PPSEN_POS    (EXTTRG_POS  + EXTTRG_NUM) /* PPS_NUM    bit */
+#define PPSPRES_POS  (PPSEN_POS   + PPS_NUM)    /* PPS_NUM    bit */
+#define ZQEN_POS     (PPSPRES_POS + PPS_NUM)    /* ZYNQ_NUM   bit */
+#define ZQBUSY_POS   (ZQEN_POS    + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
+#define TRGPDM_POS   (ZQBUSY_POS  + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
 
 #define RUN_CTRL_POS  FSMSTATE_POS
 #define RUN_CTRL_MASK (0x0FU << RUN_CTRL_POS)
@@ -77,9 +80,9 @@ static void decodeStatusReg(uint32_t statusReg, char* statusStr){
     appendBit(resStr, "FIFOFULL",  statusReg, FIFOFULL_POS);
     appendBit(resStr, "BUSYCMD",   statusReg, BUSYCMD_POS);
     appendBit(resStr, "PPSTRGON",  statusReg, PPSTRG_POS);
-    appendBit(resStr, "EXTTRGON",  statusReg, EXTTRG_POS);
     appendBit(resStr, "GPSAUTO",   statusReg, GPSAUTO_POS);
 
+    appendField(resStr, "EXTTRG",  statusReg, EXTTRG_POS,  EXTTRG_NUM);
     appendField(resStr, "PPSEN",   statusReg, PPSEN_POS,   PPS_NUM);
     appendField(resStr, "PPSPRES", statusReg, PPSPRES_POS, PPS_NUM);
     appendField(resStr, "ZQ",      statusReg, ZQEN_POS,    ZYNQ_NUM);
@@ -169,8 +172,10 @@ static cmd_t commands[] = {
     {"all reset",     RESET_ALL_COUNT, "RESET ALL COUNT\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset all the counters"},
     {"ppstrg on",     PPS_TRG_ON,      "PPS TRG ON\n",      writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable triggering on PPS"},
     {"ppstrg off",    PPS_TRG_OFF,     "PPS TRG OFF\n",     writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable triggering on PPS"},
-    {"msk exttrg",    MASK_EXT_TRG,    "MASK EXT TRG\n",    writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Mask the external trigger"},
-    {"usk exttrg",    UNMASK_EXT_TRG,  "UNMASK EXT TRG\n",  writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Unmask the external trigger"},
+    {"msk exttrg0",   MASK_EXT_TRG0,   "MASK EXT TRG0\n",   writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Mask external trigger 0"},
+    {"usk exttrg0",   UNMASK_EXT_TRG0, "UNMASK EXT TRG0\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Unmask external trigger 0"},
+    {"msk exttrg1",   MASK_EXT_TRG1,   "MASK EXT TRG1\n",   writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Mask external trigger 1"},
+    {"usk exttrg1",   UNMASK_EXT_TRG1, "UNMASK EXT TRG1\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Unmask external trigger 1"},
     {"zq0 no",        NO_ZYNQ0,        "NO ZYNQ0\n",        writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable Zynq 0"},
     {"zq1 no",        NO_ZYNQ1,        "NO ZYNQ1\n",        writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable Zynq 1"},
     {"zq2 no",        NO_ZYNQ2,        "NO ZYNQ2\n",        writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable Zynq 2"},

@@ -35,8 +35,10 @@
 #define RESET_ALL_COUNT   0xC3C3C3C3
 #define PPS_TRG_ON        0x96969696
 #define PPS_TRG_OFF       0x69696969
-#define MASK_EXT_TRG      0xFF00FF00
-#define UNMASK_EXT_TRG    0x00FF00FF
+#define MASK_EXT_TRG0     0xFF00FF00
+#define UNMASK_EXT_TRG0   0x00FF00FF
+#define MASK_EXT_TRG1     0xFF0000FF
+#define UNMASK_EXT_TRG1   0x00FFFF00
 #define NO_ZYNQ0          0x33CC33CC
 #define NO_ZYNQ1          0xCC33CC33
 #define NO_ZYNQ2          0x99669966
@@ -57,6 +59,8 @@
 #define READ_STATUS       0x00000002
 #define HELP              0x00000001
 #define EXIT              0x0000FFFF
+
+#define EXTTRG_NUM           2
 
 #define ZYNQ_NUM             4
 
