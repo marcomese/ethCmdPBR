@@ -99,6 +99,7 @@ typedef struct cmdDecodeArgs{
     axiRegisters_t*  regs;
     int              connfd;
     int              inUse;
+    uint8_t*         boardID;
     pthread_mutex_t* mtx;
     pthread_mutex_t* poolMtx;
 } cmdDecodeArgs_t;

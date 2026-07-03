@@ -23,12 +23,15 @@ void releaseSlot(cmdDecodeArgs_t* slot){
 
 void* cmdDecodeThread(void *arg){
     cmdDecodeArgs_t* cmdArg = (cmdDecodeArgs_t*)arg;
-    const char *welcomeStr = "CLK BOARD\n";
+    const char *wStr = "CLK BOARD SN";
+    char welcomeStr[WSTR_LEN] = "";
     char rxBuf[CMD_MAX_LEN] = "";
     int  rxLen = 0;
     char chunk[CMD_MAX_LEN] = "";
     int  localSocketStatus;
     int  exitConn = 0;
+
+    snprintf(welcomeStr, WSTR_LEN, "%s%02x", wStr, *(cmdArg->boardID));
 
     write(cmdArg->connfd, welcomeStr, strlen(welcomeStr));
 
