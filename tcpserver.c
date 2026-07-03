@@ -31,7 +31,7 @@ void* cmdDecodeThread(void *arg){
     int  localSocketStatus;
     int  exitConn = 0;
 
-    snprintf(welcomeStr, WSTR_LEN, "%s%02x", wStr, *(cmdArg->boardID));
+    snprintf(welcomeStr, WSTR_LEN, "%s%02x\n", wStr, *(cmdArg->boardID));
 
     write(cmdArg->connfd, welcomeStr, strlen(welcomeStr));
 
