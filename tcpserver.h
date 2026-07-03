@@ -2,7 +2,7 @@
 #define TCPSERVER_H_
 #include "main.h"
 
-#define WSTR_LEN 15
+#define WSTR_LEN 16
 
 cmdDecodeArgs_t* acquireSlot(cmdDecodeArgs_t* pool);
 void             releaseSlot(cmdDecodeArgs_t* slot);
