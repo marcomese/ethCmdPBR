@@ -49,6 +49,8 @@
 #define ZYNQ3_ON          0x5AA55AA5
 #define GPS_AUTO_ON       0x69966996
 #define GPS_AUTO_NO       0x96699669
+#define GTU_INT_ON        0xFFFF0000
+#define GTU_INT_NO        0x0000FFFF
 #define READ_GTUCOUNTER   0x00000009
 #define READ_PPSCOUNTER   0x00000008
 #define READ_EVTCOUNTER   0x00000007
@@ -58,7 +60,56 @@
 #define READ_L13COUNTER   0x00000003
 #define READ_STATUS       0x00000002
 #define HELP              0x00000001
-#define EXIT              0x0000FFFF
+#define EXIT              0x0000000A
+
+// Local command ids (HELP, EXIT, READ_*) are never written to the PL command
+// register: they live in the reserved window [1, LOCAL_CMD_MAX]. Every opcode
+// sent to the PL must stay outside that window, otherwise decodeCmdStr() can
+// return a value that tcpserver.c mistakes for EXIT.
+#define LOCAL_CMD_MAX     0x000000FF
+
+#define PL_OPCODE_CHECK(x) \
+    _Static_assert((x) > LOCAL_CMD_MAX, #x " collides with the local command id window")
+
+PL_OPCODE_CHECK(START_RUN);
+PL_OPCODE_CHECK(STOP_RUN);
+PL_OPCODE_CHECK(RELEASE_BUSY);
+PL_OPCODE_CHECK(SET_BUSY);
+PL_OPCODE_CHECK(TRIGGER);
+PL_OPCODE_CHECK(CONFIGURE_GPS);
+PL_OPCODE_CHECK(GPS1_ON);
+PL_OPCODE_CHECK(GPS2_ON);
+PL_OPCODE_CHECK(CLKPPS_ON);
+PL_OPCODE_CHECK(GPS1_NO);
+PL_OPCODE_CHECK(GPS2_NO);
+PL_OPCODE_CHECK(CLKPPS_NO);
+PL_OPCODE_CHECK(RESET_GTU_COUNT);
+PL_OPCODE_CHECK(RESET_L1_COUNT);
+PL_OPCODE_CHECK(RESET_EVT_COUNT);
+PL_OPCODE_CHECK(RESET_ALL_COUNT);
+PL_OPCODE_CHECK(PPS_TRG_ON);
+PL_OPCODE_CHECK(PPS_TRG_OFF);
+PL_OPCODE_CHECK(MASK_EXT_TRG0);
+PL_OPCODE_CHECK(UNMASK_EXT_TRG0);
+PL_OPCODE_CHECK(MASK_EXT_TRG1);
+PL_OPCODE_CHECK(UNMASK_EXT_TRG1);
+PL_OPCODE_CHECK(NO_ZYNQ0);
+PL_OPCODE_CHECK(NO_ZYNQ1);
+PL_OPCODE_CHECK(NO_ZYNQ2);
+PL_OPCODE_CHECK(NO_ZYNQ3);
+PL_OPCODE_CHECK(ZYNQ0_ON);
+PL_OPCODE_CHECK(ZYNQ1_ON);
+PL_OPCODE_CHECK(ZYNQ2_ON);
+PL_OPCODE_CHECK(ZYNQ3_ON);
+PL_OPCODE_CHECK(GPS_AUTO_ON);
+PL_OPCODE_CHECK(GPS_AUTO_NO);
+PL_OPCODE_CHECK(GTU_INT_ON);
+PL_OPCODE_CHECK(GTU_INT_NO);
+
+_Static_assert(EXIT <= LOCAL_CMD_MAX, "EXIT outside the local command id window");
+_Static_assert(HELP <= LOCAL_CMD_MAX, "HELP outside the local command id window");
+_Static_assert(READ_STATUS <= LOCAL_CMD_MAX, "READ_STATUS outside the local command id window");
+_Static_assert(READ_GTUCOUNTER <= LOCAL_CMD_MAX, "READ_GTUCOUNTER outside the local command id window");
 
 #define EXTTRG_NUM           2
 

@@ -163,6 +163,8 @@ static cmd_t commands[] = {
     {"clkpps no",     CLKPPS_NO,       "NO CLKPPS\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the PPS from CC clkBoard"},
     {"ppsauto on",    GPS_AUTO_ON,     "GPS AUTO ON\n",     writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the auto selection of PPS"},
     {"ppsauto no",    GPS_AUTO_NO,     "GPS AUTO NO\n",     writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the auto selection of PPS"},
+    {"gtuint on",     GTU_INT_ON,      "INTERNAL GTU ON\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable internal GTU generation"},
+    {"gtuint no",     GTU_INT_NO,      "INTERNAL GTU NO\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable internal GTU generation"},
     {"gtu reset",     RESET_GTU_COUNT, "RESET GTU COUNT\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the GTU counter"},
     {"evt reset",     RESET_EVT_COUNT, "RESET EVT COUNT\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the event counter"},
     {"l1 reset",      RESET_L1_COUNT,  "RESET L1 COUNT\n",  writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the L1 counters"},
