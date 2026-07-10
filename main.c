@@ -214,7 +214,7 @@ int main(){
     }
 
     strncpy(s.ifr_name, "end0", IFNAMSIZ);
-    if(ioctl(fd, SIOCGIFHWADDR, &s)==0)
+    if(ioctl(listenfd, SIOCGIFHWADDR, &s)==0)
         boardID = s.ifr_addr.sa_data[5] & 0x0F;
 
     chkFifoArg.boardID  = &boardID;
