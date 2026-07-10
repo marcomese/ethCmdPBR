@@ -2,7 +2,7 @@
 
 #define COUNT(ARRAY) (sizeof(ARRAY) / sizeof(*ARRAY))
 
-/* status_register: blocco a posizioni FISSE (bit 11..0) */
+/* status_register: blocco a posizioni FISSE (bit 10..0) */
 #define RUN_POS         0U   /* run            */
 #define RUNCTRLBUSY_POS 1U   /* runCtrlBusy    */
 #define FIFOREADY_POS   2U   /* plToAxiSBusy   */
@@ -11,16 +11,14 @@
 #define PPSTRG_POS      5U   /* pps_trg        */
 #define GPSAUTO_POS     6U   /* pps_auto       */
 #define FSMSTATE_POS    7U   /* fsmState (4 bit) -> bit 10..7 */
-/* bit 11: reserved */
 
-/* status_register: blocco PARAMETRICO (impilato dal bit 12) */
-#define PARAM_BASE   12U
+/* status_register: blocco PARAMETRICO (impilato dal bit 11) */
+#define PARAM_BASE   11U
 #define EXTTRG_POS   (PARAM_BASE)               /* EXTTRG_NUM bit */
 #define PPSEN_POS    (EXTTRG_POS  + EXTTRG_NUM) /* PPS_NUM    bit */
 #define PPSPRES_POS  (PPSEN_POS   + PPS_NUM)    /* PPS_NUM    bit */
 #define ZQEN_POS     (PPSPRES_POS + PPS_NUM)    /* ZYNQ_NUM   bit */
 #define ZQBUSY_POS   (ZQEN_POS    + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
-#define TRGPDM_POS   (ZQBUSY_POS  + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
 
 #define RUN_CTRL_POS  FSMSTATE_POS
 #define RUN_CTRL_MASK (0x0FU << RUN_CTRL_POS)
@@ -87,7 +85,6 @@ static void decodeStatusReg(uint32_t statusReg, char* statusStr){
     appendField(resStr, "PPSPRES", statusReg, PPSPRES_POS, PPS_NUM);
     appendField(resStr, "ZQ",      statusReg, ZQEN_POS,    ZYNQ_NUM);
     appendField(resStr, "ZQBUSY",  statusReg, ZQBUSY_POS,  ZYNQ_NUM);
-    appendField(resStr, "TRGPDM",  statusReg, TRGPDM_POS,  ZYNQ_NUM);
 
     snprintf(tempStr, STATUS_ID_MAX_LEN, "RUNCTRL=%s\n", runCtrlDecode[runCtrlState]);
 

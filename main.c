@@ -31,7 +31,6 @@ int main(){
     void* mmapRet = NULL;
     int fd   = 0;
     uint8_t boardID = 0;
-    uint32_t header = 0;
     int cfgIrq[GPS_NUM] = {0, 0};
     char gpsStr[DATA_GPS_BYTES] = "";
 
@@ -218,9 +217,7 @@ int main(){
     if(ioctl(fd, SIOCGIFHWADDR, &s)==0)
         boardID = s.ifr_addr.sa_data[5] & 0x0F;
 
-    header  = boardID ?  ((boardID+0x30) << 24) | (DATA_HEADER & 0x00FFFFFF) : DATA_HEADER;
-
-    chkFifoArg.header   = &header;
+    chkFifoArg.boardID  = &boardID;
     chkFifoArg.regs     = &axiRegs;
     chkFifoArg.fifoData = fifoData;
     chkFifoArg.gpsStr   = gpsStr;
