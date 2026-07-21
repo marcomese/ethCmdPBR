@@ -2,8 +2,8 @@
 
 #define COUNT(ARRAY) (sizeof(ARRAY) / sizeof(*ARRAY))
 
-/* status_register: blocco a posizioni FISSE (bit 10..0) */
-#define RUN_POS         0U   /* run            */
+/* status_register: blocco a posizioni FISSE (bit 11..0) */
+#define RUN_POS         0U   /* running (run active: run cmd + all selected zynq busy low) */
 #define RUNCTRLBUSY_POS 1U   /* runCtrlBusy    */
 #define FIFOREADY_POS   2U   /* plToAxiSBusy   */
 #define FIFOFULL_POS    3U   /* fifoFull       */
@@ -11,14 +11,16 @@
 #define PPSTRG_POS      5U   /* pps_trg        */
 #define GPSAUTO_POS     6U   /* pps_auto       */
 #define FSMSTATE_POS    7U   /* fsmState (4 bit) -> bit 10..7 */
+#define TIMEOUT_POS     11U  /* run start timed out waiting for the zynq busy lines */
 
-/* status_register: blocco PARAMETRICO (impilato dal bit 11) */
-#define PARAM_BASE   11U
-#define EXTTRG_POS   (PARAM_BASE)               /* EXTTRG_NUM bit */
-#define PPSEN_POS    (EXTTRG_POS  + EXTTRG_NUM) /* PPS_NUM    bit */
-#define PPSPRES_POS  (PPSEN_POS   + PPS_NUM)    /* PPS_NUM    bit */
-#define ZQEN_POS     (PPSPRES_POS + PPS_NUM)    /* ZYNQ_NUM   bit */
-#define ZQBUSY_POS   (ZQEN_POS    + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
+/* status_register: blocco PARAMETRICO (impilato dal bit 12) */
+#define PARAM_BASE     12U
+#define TIMEOUTFLAG_POS (PARAM_BASE)                  /* ZYNQ_NUM   bit */
+#define EXTTRG_POS     (TIMEOUTFLAG_POS + ZYNQ_NUM)   /* EXTTRG_NUM bit */
+#define PPSEN_POS      (EXTTRG_POS      + EXTTRG_NUM) /* PPS_NUM    bit */
+#define PPSPRES_POS    (PPSEN_POS       + PPS_NUM)    /* PPS_NUM    bit */
+#define ZQEN_POS       (PPSPRES_POS     + PPS_NUM)    /* ZYNQ_NUM   bit */
+#define ZQBUSY_POS     (ZQEN_POS        + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
 
 #define RUN_CTRL_POS  FSMSTATE_POS
 #define RUN_CTRL_MASK (0x0FU << RUN_CTRL_POS)
@@ -79,7 +81,9 @@ static void decodeStatusReg(uint32_t statusReg, char* statusStr){
     appendBit(resStr, "BUSYCMD",   statusReg, BUSYCMD_POS);
     appendBit(resStr, "PPSTRGON",  statusReg, PPSTRG_POS);
     appendBit(resStr, "GPSAUTO",   statusReg, GPSAUTO_POS);
+    appendBit(resStr, "TIMEOUT",   statusReg, TIMEOUT_POS);
 
+    appendField(resStr, "TOUTFLG", statusReg, TIMEOUTFLAG_POS, ZYNQ_NUM);
     appendField(resStr, "EXTTRG",  statusReg, EXTTRG_POS,  EXTTRG_NUM);
     appendField(resStr, "PPSEN",   statusReg, PPSEN_POS,   PPS_NUM);
     appendField(resStr, "PPSPRES", statusReg, PPSPRES_POS, PPS_NUM);
