@@ -66,7 +66,7 @@
 
 #define IMU_SCAN_SIZE 56
 
-typedef struct{
+typedef struct __attribute__((packed)) {
     int16_t accel[3];
     int16_t magn[3];
     int16_t anglvel[3];
@@ -76,6 +76,7 @@ typedef struct{
     int16_t quat[4];
     int16_t accel_linear[3];
     int16_t gravity[3];
+    uint8_t _pad[4];
     int64_t timestamp;
 } imuRaw_t;
 
