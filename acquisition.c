@@ -36,6 +36,7 @@ void* checkFifoThread(void *arg){
                                      : DATA_HEADER;
     uint32_t statusReg = 0;
     uint32_t running = 0;
+    uint32_t wasRunning = 0;
     uint32_t eventCounter = 0;
     uint32_t fileCounter = 0;
     uint32_t count = 1;
@@ -66,6 +67,11 @@ void* checkFifoThread(void *arg){
         pthread_mutex_unlock(chkArg->mtx);
 
         running = statusReg & RUN_STATUS_MASK;
+
+        if(running && !wasRunning)
+            dma_reset_s2mm(chkArg->regs->dmaReg, DATA_ADDR);
+
+        wasRunning = running;
 
         if(chkArg->imuArgs != NULL){
             if(running && !imuRunning){
@@ -112,6 +118,8 @@ void* checkFifoThread(void *arg){
                     }else{
                         fprintf(stderr, "Error in opening file %s\n", fileName);
                     }
+                }else{
+                    dma_reset_s2mm(chkArg->regs->dmaReg, DATA_ADDR);
                 }
             }
 

@@ -5,7 +5,7 @@
 /* status_register: blocco a posizioni FISSE (bit 11..0) */
 #define RUN_POS         0U   /* running (run active: run cmd + all selected zynq busy low) */
 #define RUNCTRLBUSY_POS 1U   /* runCtrlBusy    */
-#define FIFOREADY_POS   2U   /* plToAxiSBusy   */
+#define PLAXISBUSY_POS  2U   /* plToAxiSBusy: adapter busy OR downstream FIFO not ready */
 #define FIFOFULL_POS    3U   /* fifoFull       */
 #define BUSYCMD_POS     4U   /* cmd_busy       */
 #define PPSTRG_POS      5U   /* pps_trg        */
@@ -76,7 +76,7 @@ static void decodeStatusReg(uint32_t statusReg, char* statusStr){
 
     appendBit(resStr, "RUN",       statusReg, RUN_POS);
     appendBit(resStr, "BUSY",      statusReg, RUNCTRLBUSY_POS);
-    appendBit(resStr, "FIFOREADY", statusReg, FIFOREADY_POS);
+    appendBit(resStr, "PLAXISBUSY", statusReg, PLAXISBUSY_POS);
     appendBit(resStr, "FIFOFULL",  statusReg, FIFOFULL_POS);
     appendBit(resStr, "BUSYCMD",   statusReg, BUSYCMD_POS);
     appendBit(resStr, "PPSTRGON",  statusReg, PPSTRG_POS);

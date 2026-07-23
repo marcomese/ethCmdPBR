@@ -10,9 +10,25 @@ unsigned int read_dma(volatile unsigned int *virtual_addr, int offset){
 }
 
 void dma_init_s2mm(volatile unsigned int *virtual_addr){
+    unsigned int retries = 0;
+
     write_dma(virtual_addr, S2MM_CONTROL_REGISTER, RESET_DMA);
+
+    while((read_dma(virtual_addr, S2MM_CONTROL_REGISTER) & RESET_DMA)){
+        if(++retries > DMA_SYNC_MAX_RETRIES){
+            fprintf(stderr,"DMA S2MM reset timeout\n");
+            break;
+        }
+    }
+
     write_dma(virtual_addr, S2MM_CONTROL_REGISTER, HALT_DMA);
     write_dma(virtual_addr, S2MM_CONTROL_REGISTER, ENABLE_ALL_IRQ);
+    return;
+}
+
+void dma_reset_s2mm(volatile unsigned int *virtual_addr, unsigned int dest_addr){
+    dma_init_s2mm(virtual_addr);
+    dma_set_buffer(virtual_addr, dest_addr);
     return;
 }
 

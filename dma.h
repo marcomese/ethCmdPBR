@@ -54,6 +54,7 @@ unsigned int write_dma(volatile unsigned int *virtual_addr, int offset, unsigned
 unsigned int read_dma(volatile unsigned int *virtual_addr, int offset);
 int  dma_s2mm_sync(volatile unsigned int *virtual_addr);
 void dma_init_s2mm(volatile unsigned int *virtual_addr);
+void dma_reset_s2mm(volatile unsigned int *virtual_addr, unsigned int dest_addr);
 void dma_set_buffer(volatile unsigned int *virtual_addr, unsigned int dest_addr);
 int dma_transfer_s2mm(volatile unsigned int *virtual_addr, unsigned int bytes_num);
 
