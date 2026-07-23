@@ -44,6 +44,10 @@ void* checkFifoThread(void *arg){
     pthread_t imuTid;
     char fileName[FILENAME_LEN] = "";
     pbrData_t data = {0};
+    /* DEBUG: cross-check wall-clock vs monotonic inter-event spacing (temporary, remove after investigation) */
+    uint32_t prevUnixTime = 0;
+    struct timespec prevMono = {0};
+    int haveDbgPrev = 0;
 
     struct pollfd pfd = {
         .fd     = chkArg->fdTrg,
@@ -107,6 +111,24 @@ void* checkFifoThread(void *arg){
                         data.status    = *(chkArg->fifoData+STATUS_IDX);
                         memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
                         pthread_mutex_unlock(chkArg->mtx);
+
+                        /* DEBUG: temporary, remove after investigation */
+                        {
+                            struct timespec nowMono;
+                            clock_gettime(CLOCK_MONOTONIC, &nowMono);
+                            if(haveDbgPrev){
+                                double deltaMono = (nowMono.tv_sec - prevMono.tv_sec)
+                                                  + (nowMono.tv_nsec - prevMono.tv_nsec) / 1e9;
+                                int32_t deltaWall = (int32_t)(data.unixTime - prevUnixTime);
+                                if(deltaWall != 1)
+                                    fprintf(stderr,
+                                        "[DBG] evt=%u unixTime=%u deltaWall=%d deltaMono=%.6f\n",
+                                        data.evtCount, data.unixTime, deltaWall, deltaMono);
+                            }
+                            prevMono = nowMono;
+                            haveDbgPrev = 1;
+                            prevUnixTime = data.unixTime;
+                        }
 
                         if(chkArg->imuShared != NULL)
                             imuGetSnapshot(chkArg->imuShared, chkArg->mtx, &data.imu);
