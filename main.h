@@ -46,7 +46,7 @@
 
 #define DATA_HEADER    0x424B4C43
 #define DATA_ADDR      0x1F000000
-#define DATA_PL_BYTES  24
+#define DATA_PL_BYTES  28
 #define GPS_SLOT_LEN   244
 #define DATA_GPS_BYTES (GPS_NUM * GPS_SLOT_LEN)
 #define DATA_BYTES     (DATA_PL_BYTES + DATA_GPS_BYTES)
@@ -55,8 +55,9 @@
 
 #define TRG_NUM_PER_FILE 25
 
-#define EVTCNT_IDX 5
-#define GTUCNT_IDX 4
+#define EVTCNT_IDX 6
+#define GTUCNT_IDX 5
+#define PPSCNT_IDX 4
 #define TRGFLG_IDX 3
 #define ALIVET_IDX 2
 #define DEADT_IDX  1
@@ -133,6 +134,7 @@ typedef struct pbrData{
     uint32_t     unixTime;
     uint32_t     evtCount;
     uint32_t     gtuCount;
+    uint32_t     ppsCount;
     uint32_t     trgFlag;
     uint32_t     aliveTime;
     uint32_t     deadTime;

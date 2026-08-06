@@ -68,7 +68,7 @@ void* checkFifoThread(void *arg){
 
         running = statusReg & RUN_STATUS_MASK;
 
-        if(running && !wasRunning)
+        if(wasRunning && !running)
             dma_reset_s2mm(chkArg->regs->dmaReg, DATA_ADDR);
 
         wasRunning = running;
@@ -101,6 +101,7 @@ void* checkFifoThread(void *arg){
                         data.unixTime  = (uint32_t)time(NULL);
                         data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
                         data.gtuCount  = *(chkArg->fifoData+GTUCNT_IDX);
+                        data.ppsCount  = *(chkArg->fifoData+PPSCNT_IDX);
                         data.trgFlag   = *(chkArg->fifoData+TRGFLG_IDX);
                         data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
                         data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
