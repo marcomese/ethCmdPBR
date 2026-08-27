@@ -98,14 +98,15 @@ void* checkFifoThread(void *arg){
                         memset(data.gpsStr, '\0', DATA_GPS_BYTES);
                         data.header    = header;
                         pthread_mutex_lock(chkArg->mtx);
-                        data.unixTime  = (uint32_t)time(NULL);
-                        data.evtCount  = *(chkArg->fifoData+EVTCNT_IDX);
-                        data.gtuCount  = *(chkArg->fifoData+GTUCNT_IDX);
-                        data.ppsCount  = *(chkArg->fifoData+PPSCNT_IDX);
-                        data.trgFlag   = *(chkArg->fifoData+TRGFLG_IDX);
-                        data.aliveTime = *(chkArg->fifoData+ALIVET_IDX);
-                        data.deadTime  = *(chkArg->fifoData+DEADT_IDX);
-                        data.status    = *(chkArg->fifoData+STATUS_IDX);
+                        data.unixTime    = (uint32_t)time(NULL);
+                        data.evtCount    = *(chkArg->fifoData+EVTCNT_IDX);
+                        data.gtuCount    = *(chkArg->fifoData+GTUCNT_IDX);
+                        data.ppsCount    = *(chkArg->fifoData+PPSCNT_IDX);
+                        data.clk40MCount = *(chkArg->fifoData+CLK40_IDX);
+                        data.trgFlag     = *(chkArg->fifoData+TRGFLG_IDX);
+                        data.aliveTime   = *(chkArg->fifoData+ALIVET_IDX);
+                        data.deadTime    = *(chkArg->fifoData+DEADT_IDX);
+                        data.status      = *(chkArg->fifoData+STATUS_IDX);
                         memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
                         pthread_mutex_unlock(chkArg->mtx);
 
