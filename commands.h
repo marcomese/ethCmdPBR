@@ -51,6 +51,8 @@
 #define GPS_AUTO_NO       0x96699669
 #define GTU_INT_ON        0xFFFF0000
 #define GTU_INT_NO        0x0000FFFF
+#define CLK40_INT_ON      0xAAAA5555
+#define CLK40_INT_NO      0x5555AAAA
 #define READ_GTUCOUNTER   0x00000009
 #define READ_PPSCOUNTER   0x00000008
 #define READ_EVTCOUNTER   0x00000007
@@ -105,6 +107,8 @@ PL_OPCODE_CHECK(GPS_AUTO_ON);
 PL_OPCODE_CHECK(GPS_AUTO_NO);
 PL_OPCODE_CHECK(GTU_INT_ON);
 PL_OPCODE_CHECK(GTU_INT_NO);
+PL_OPCODE_CHECK(CLK40_INT_ON);
+PL_OPCODE_CHECK(CLK40_INT_NO);
 
 _Static_assert(EXIT <= LOCAL_CMD_MAX, "EXIT outside the local command id window");
 _Static_assert(HELP <= LOCAL_CMD_MAX, "HELP outside the local command id window");
