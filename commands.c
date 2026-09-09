@@ -41,7 +41,7 @@ const char runCtrlDecode[16][STATUS_ID_MAX_LEN] = {
     "BUSYCPU",
     "BUSYZYNQ",
     "BUSY",
-    "",
+    "BUSYZQMNG",
     "",
     "",
     "ERR",
