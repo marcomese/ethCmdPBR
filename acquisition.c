@@ -106,7 +106,8 @@ void* checkFifoThread(void *arg){
                         data.trgFlag     = *(chkArg->fifoData+TRGFLG_IDX);
                         data.aliveTime   = *(chkArg->fifoData+ALIVET_IDX);
                         data.deadTime    = *(chkArg->fifoData+DEADT_IDX);
-                        data.status      = *(chkArg->fifoData+STATUS_IDX);
+                        data.statusLo    = *(chkArg->fifoData+STATUSLO_IDX);
+                        data.statusHi    = *(chkArg->fifoData+STATUSHI_IDX);
                         memcpy(data.gpsStr, chkArg->gpsStr, DATA_GPS_BYTES);
                         pthread_mutex_unlock(chkArg->mtx);
 

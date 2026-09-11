@@ -46,7 +46,8 @@
 
 #define DATA_HEADER    0x424B4C43
 #define DATA_ADDR      0x1F000000
-#define DATA_PL_BYTES  32
+#define DATA_PL_WORDS  9
+#define DATA_PL_BYTES  (DATA_PL_WORDS * 4)
 #define GPS_SLOT_LEN   244
 #define DATA_GPS_BYTES (GPS_NUM * GPS_SLOT_LEN)
 #define DATA_BYTES     (DATA_PL_BYTES + DATA_GPS_BYTES)
@@ -55,14 +56,15 @@
 
 #define TRG_NUM_PER_FILE 25
 
-#define EVTCNT_IDX 7
-#define GTUCNT_IDX 6
-#define PPSCNT_IDX 5
-#define CLK40_IDX  4
-#define TRGFLG_IDX 3
-#define ALIVET_IDX 2
-#define DEADT_IDX  1
-#define STATUS_IDX 0
+#define EVTCNT_IDX   8
+#define GTUCNT_IDX   7
+#define PPSCNT_IDX   6
+#define CLK40_IDX    5
+#define TRGFLG_IDX   4
+#define ALIVET_IDX   3
+#define DEADT_IDX    2
+#define STATUSHI_IDX 1   /* status_register(63 downto 32) */
+#define STATUSLO_IDX 0   /* status_register(31 downto 0)  */
 
 #define RUN_STATUS_MASK 0x01
 
@@ -140,10 +142,15 @@ typedef struct pbrData{
     uint32_t     trgFlag;
     uint32_t     aliveTime;
     uint32_t     deadTime;
-    uint32_t     status;
+    uint32_t     statusLo;
+    uint32_t     statusHi;
     char         gpsStr[DATA_GPS_BYTES];
     imuRaw_t     imu;
     unsigned int crc;
 } pbrData_t;
+
+#define DATA_RECORD_BYTES (11*4 + DATA_GPS_BYTES + IMU_SCAN_SIZE + 4)
+
+_Static_assert(sizeof(pbrData_t) == DATA_RECORD_BYTES, "pbrData_t layout mismatch");
 
 #endif

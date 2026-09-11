@@ -2,7 +2,6 @@
 
 #define COUNT(ARRAY) (sizeof(ARRAY) / sizeof(*ARRAY))
 
-/* status_register: blocco a posizioni FISSE (bit 11..0) */
 #define RUN_POS         0U   /* running (run active: run cmd + all selected zynq busy low) */
 #define RUNCTRLBUSY_POS 1U   /* runCtrlBusy    */
 #define PLAXISBUSY_POS  2U   /* plToAxiSBusy: adapter busy OR downstream FIFO not ready */
@@ -13,14 +12,18 @@
 #define FSMSTATE_POS    7U   /* fsmState (4 bit) -> bit 10..7 */
 #define TIMEOUT_POS     11U  /* run start timed out waiting for the zynq busy lines */
 
-/* status_register: blocco PARAMETRICO (impilato dal bit 12) */
-#define PARAM_BASE     12U
+#define PARAM_BASE      12U
 #define TIMEOUTFLAG_POS (PARAM_BASE)                  /* ZYNQ_NUM   bit */
-#define EXTTRG_POS     (TIMEOUTFLAG_POS + ZYNQ_NUM)   /* EXTTRG_NUM bit */
-#define PPSEN_POS      (EXTTRG_POS      + EXTTRG_NUM) /* PPS_NUM    bit */
-#define PPSPRES_POS    (PPSEN_POS       + PPS_NUM)    /* PPS_NUM    bit */
-#define ZQEN_POS       (PPSPRES_POS     + PPS_NUM)    /* ZYNQ_NUM   bit */
-#define ZQBUSY_POS     (ZQEN_POS        + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
+#define EXTTRG_POS      (TIMEOUTFLAG_POS + ZYNQ_NUM)   /* EXTTRG_NUM bit */
+#define PPSEN_POS       (EXTTRG_POS      + EXTTRG_NUM) /* PPS_NUM    bit */
+#define PPSPRES_POS     (PPSEN_POS       + PPS_NUM)    /* PPS_NUM    bit */
+#define ZQEN_POS        (PPSPRES_POS     + PPS_NUM)    /* ZYNQ_NUM   bit */
+#define ZQBUSY_POS      (ZQEN_POS        + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
+#define STATUS_USED     (ZQBUSY_POS      + ZYNQ_NUM)
+
+#define STATUS_LEN     64U
+
+_Static_assert(STATUS_USED <= STATUS_LEN, "status_register fields exceed STATUS_LEN");
 
 #define RUN_CTRL_POS  FSMSTATE_POS
 #define RUN_CTRL_MASK (0x0FU << RUN_CTRL_POS)
@@ -47,7 +50,7 @@ const char runCtrlDecode[16][STATUS_ID_MAX_LEN] = {
     "ERR",
 };
 
-static void appendBit(char* dst, const char* label, uint32_t reg, uint8_t pos){
+static void appendBit(char* dst, const char* label, uint64_t reg, uint8_t pos){
     char tempStr[STATUS_ID_MAX_LEN] = "";
 
     snprintf(tempStr, STATUS_ID_MAX_LEN, "%.*s=%d ", STATUS_ID_STR_MAXLEN, label,
@@ -56,7 +59,7 @@ static void appendBit(char* dst, const char* label, uint32_t reg, uint8_t pos){
     strncat(dst, tempStr, STATUS_ID_MAX_LEN);
 }
 
-static void appendField(char* dst, const char* label, uint32_t reg, uint8_t base, uint8_t n){
+static void appendField(char* dst, const char* label, uint64_t reg, uint8_t base, uint8_t n){
     char tempStr[STATUS_ID_MAX_LEN] = "";
 
     for(uint8_t k = 0; k < n; k++){
@@ -67,28 +70,28 @@ static void appendField(char* dst, const char* label, uint32_t reg, uint8_t base
     }
 }
 
-static void decodeStatusReg(uint32_t statusReg, char* statusStr){
+static void decodeStatusReg(uint64_t statusReg, char* statusStr){
     uint8_t runCtrlState = 0;
     char resStr[TCP_SND_BUF] = "";
     char tempStr[STATUS_ID_MAX_LEN] = "";
 
-    runCtrlState = (statusReg & RUN_CTRL_MASK) >> RUN_CTRL_POS;
+    runCtrlState = (uint8_t)((statusReg & RUN_CTRL_MASK) >> RUN_CTRL_POS);
 
-    appendBit(resStr, "RUN",       statusReg, RUN_POS);
-    appendBit(resStr, "BUSY",      statusReg, RUNCTRLBUSY_POS);
+    appendBit(resStr, "RUN",        statusReg, RUN_POS);
+    appendBit(resStr, "BUSY",       statusReg, RUNCTRLBUSY_POS);
     appendBit(resStr, "PLAXISBUSY", statusReg, PLAXISBUSY_POS);
-    appendBit(resStr, "FIFOFULL",  statusReg, FIFOFULL_POS);
-    appendBit(resStr, "BUSYCMD",   statusReg, BUSYCMD_POS);
-    appendBit(resStr, "PPSTRGON",  statusReg, PPSTRG_POS);
-    appendBit(resStr, "GPSAUTO",   statusReg, GPSAUTO_POS);
-    appendBit(resStr, "TIMEOUT",   statusReg, TIMEOUT_POS);
+    appendBit(resStr, "FIFOFULL",   statusReg, FIFOFULL_POS);
+    appendBit(resStr, "BUSYCMD",    statusReg, BUSYCMD_POS);
+    appendBit(resStr, "PPSTRGON",   statusReg, PPSTRG_POS);
+    appendBit(resStr, "GPSAUTO",    statusReg, GPSAUTO_POS);
+    appendBit(resStr, "TIMEOUT",    statusReg, TIMEOUT_POS);
 
     appendField(resStr, "TOUTFLG", statusReg, TIMEOUTFLAG_POS, ZYNQ_NUM);
-    appendField(resStr, "EXTTRG",  statusReg, EXTTRG_POS,  EXTTRG_NUM);
-    appendField(resStr, "PPSEN",   statusReg, PPSEN_POS,   PPS_NUM);
-    appendField(resStr, "PPSPRES", statusReg, PPSPRES_POS, PPS_NUM);
-    appendField(resStr, "ZQ",      statusReg, ZQEN_POS,    ZYNQ_NUM);
-    appendField(resStr, "ZQBUSY",  statusReg, ZQBUSY_POS,  ZYNQ_NUM);
+    appendField(resStr, "EXTTRG",  statusReg, EXTTRG_POS,      EXTTRG_NUM);
+    appendField(resStr, "PPSEN",   statusReg, PPSEN_POS,       PPS_NUM);
+    appendField(resStr, "PPSPRES", statusReg, PPSPRES_POS,     PPS_NUM);
+    appendField(resStr, "ZQ",      statusReg, ZQEN_POS,        ZYNQ_NUM);
+    appendField(resStr, "ZQBUSY",  statusReg, ZQBUSY_POS,      ZYNQ_NUM);
 
     snprintf(tempStr, STATUS_ID_MAX_LEN, "RUNCTRL=%s\n", runCtrlDecode[runCtrlState]);
 
@@ -105,37 +108,32 @@ static void writeCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
 
 static void readCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
     uint32_t regVal = 0;
+    uint64_t status = 0;
     char resStr[TCP_SND_BUF] = "";
-    volatile uint32_t* reg;
-    
-    switch(c->cmdVal){
-        case READ_STATUS:
-            reg = regDev->statusReg;
-            regVal = readReg(reg, c->baseAddr, c->regAddr);
-            decodeStatusReg(regVal,resStr);
-            break;
-        case READ_L10COUNTER:
-        case READ_L11COUNTER:
-        case READ_L12COUNTER:
-        case READ_L13COUNTER:
-            reg = regDev->l1CntReg;
-            regVal = readReg(reg, c->baseAddr, c->regAddr);
-            snprintf(resStr, TCP_SND_BUF, "%s%u\n", c->feedbackStr, (unsigned int)regVal);
-            break;
-        case READ_EVTCOUNTER:
-        case READ_GTUCOUNTER:
-            reg = regDev->statusReg;
-            regVal = readReg(reg, c->baseAddr, c->regAddr);
-            snprintf(resStr, TCP_SND_BUF, "%s%u\n", c->feedbackStr, (unsigned int)regVal);
-            break;
-        case READ_PPSCOUNTER:
-            reg = regDev->ppsadflReg;
-            regVal = readReg(reg, c->baseAddr, c->regAddr);
-            snprintf(resStr, TCP_SND_BUF, "%s%u\n", c->feedbackStr, (unsigned int)regVal);
-            break;
-        default:
-            snprintf(resStr, TCP_SND_BUF, "%s", invalidAddr);
-            break;
+    volatile uint32_t* reg = regionOf(regDev, c->baseAddr);
+
+    if(reg == NULL){
+        snprintf(resStr, TCP_SND_BUF, "%s", invalidAddr);
+    }else{
+        switch(c->cmdVal){
+            case READ_STATUS:
+                status  = readReg(reg, c->baseAddr, STATUS_LO_ADDR);
+                status |= (uint64_t)readReg(reg, c->baseAddr, STATUS_HI_ADDR) << 32;
+                decodeStatusReg(status, resStr);
+                break;
+            case READ_FWSHA:
+                regVal = readReg(reg, c->baseAddr, c->regAddr);
+                if(regVal == 0)
+                    snprintf(resStr, TCP_SND_BUF, "%s0000000 (non-reproducible build)\n", c->feedbackStr);
+                else
+                    snprintf(resStr, TCP_SND_BUF, "%s%07x\n", c->feedbackStr,
+                             (unsigned int)(regVal & FW_SHA_MASK));
+                break;
+            default:
+                regVal = readReg(reg, c->baseAddr, c->regAddr);
+                snprintf(resStr, TCP_SND_BUF, "%s%u\n", c->feedbackStr, (unsigned int)regVal);
+                break;
+        }
     }
 
     printf("%s", resStr);
@@ -153,52 +151,57 @@ static void echo(axiRegisters_t *regDev, int connfd, cmd_t *c){
 static void help(axiRegisters_t *regDev, int connfd, cmd_t *c);
 
 static cmd_t commands[] = {
-    {"start run",     START_RUN,       "START RUN\n",             writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Start the acquisition run"},
-    {"stop run",      STOP_RUN,        "STOP RUN\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Stop the acquisition run"},
-    {"rel busy",      RELEASE_BUSY,    "RELEASE BUSY\n",          writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Release the clkBoard busy signal"},
-    {"set busy",      SET_BUSY,        "SET BUSY\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Set the clkBoard busy signal"},
-    {"trg",           TRIGGER,         "TRIGGER\n",               writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Send a software trigger signal"},
-    {"gps configure", CONFIGURE_GPS,   "CONFIGURE GPS\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Configure the GPSs (all of them)"},
-    {"gps1pps on",    GPS1_ON,         "GPS1PPS ON\n",            writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the PPS from GPS1"},
-    {"gps2pps on",    GPS2_ON,         "GPS2PPS ON\n",            writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the PPS from GPS2"},
-    {"clkpps on",     CLKPPS_ON,       "CLKPPS ON\n",             writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the PPS from CC clkBoard"},
-    {"gps1pps no",    GPS1_NO,         "NO GPS1\n",               writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the PPS from GPS1"},
-    {"gps2pps no",    GPS2_NO,         "NO GPS2\n",               writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the PPS from GPS2"},
-    {"clkpps no",     CLKPPS_NO,       "NO CLKPPS\n",             writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the PPS from CC clkBoard"},
-    {"ppsauto on",    GPS_AUTO_ON,     "GPS AUTO ON\n",           writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable the auto selection of PPS"},
-    {"ppsauto no",    GPS_AUTO_NO,     "GPS AUTO NO\n",           writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable the auto selection of PPS"},
-    {"gtuint on",     GTU_INT_ON,      "INTERNAL GTU ON\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable internal GTU generation"},
-    {"gtuint no",     GTU_INT_NO,      "INTERNAL GTU NO\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable internal GTU generation"},
-    {"clk40int on",   CLK40_INT_ON,    "INTERNAL 40MHz CLK ON\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable internal 40MHz clock generation"},
-    {"clk40int no",   CLK40_INT_NO,    "INTERNAL 40MHz CLK NO\n", writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable internal 40MHz clock generation"},
-    {"gtu reset",     RESET_GTU_COUNT, "RESET GTU COUNT\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the GTU counter"},
-    {"evt reset",     RESET_EVT_COUNT, "RESET EVT COUNT\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the event counter"},
-    {"l1 reset",      RESET_L1_COUNT,  "RESET L1 COUNT\n",        writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset the L1 counters"},
-    {"all reset",     RESET_ALL_COUNT, "RESET ALL COUNT\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Reset all the counters"},
-    {"ppstrg on",     PPS_TRG_ON,      "PPS TRG ON\n",            writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable triggering on PPS"},
-    {"ppstrg off",    PPS_TRG_OFF,     "PPS TRG OFF\n",           writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable triggering on PPS"},
-    {"msk exttrg0",   MASK_EXT_TRG0,   "MASK EXT TRG0\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Mask external trigger 0"},
-    {"usk exttrg0",   UNMASK_EXT_TRG0, "UNMASK EXT TRG0\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Unmask external trigger 0"},
-    {"msk exttrg1",   MASK_EXT_TRG1,   "MASK EXT TRG1\n",         writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Mask external trigger 1"},
-    {"usk exttrg1",   UNMASK_EXT_TRG1, "UNMASK EXT TRG1\n",       writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Unmask external trigger 1"},
-    {"zq0 no",        NO_ZYNQ0,        "NO ZYNQ0\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable Zynq 0"},
-    {"zq1 no",        NO_ZYNQ1,        "NO ZYNQ1\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable Zynq 1"},
-    {"zq2 no",        NO_ZYNQ2,        "NO ZYNQ2\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable Zynq 2"},
-    {"zq3 no",        NO_ZYNQ3,        "NO ZYNQ3\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Disable Zynq 3"},
-    {"zq0 on",        ZYNQ0_ON,        "ZYNQ0 ON\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable Zynq 0"},
-    {"zq1 on",        ZYNQ1_ON,        "ZYNQ1 ON\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable Zynq 1"},
-    {"zq2 on",        ZYNQ2_ON,        "ZYNQ2 ON\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable Zynq 2"},
-    {"zq3 on",        ZYNQ3_ON,        "ZYNQ3 ON\n",              writeCmd, CTRL_REG_ADDR,    CMD_RECV_ADDR,     "Enable Zynq 3"},
-    {"status",        READ_STATUS,     NULL,                      readCmd,  STATUS_REG_ADDR,  STATUS_REG_ADDR,   "Show the decoded status register"},
-    {"gtu counter",   READ_GTUCOUNTER, "GTU COUNTER=",            readCmd,  STATUS_REG_ADDR,  GTU_COUNTER_ADDR,  "Show the GTU counter"},
-    {"pps counter",   READ_PPSCOUNTER, "PPS COUNTER=",            readCmd,  PPSADFL_REG_ADDR, PPS_COUNTER_ADDR,  "Show the PPS counter"},
-    {"evt counter",   READ_EVTCOUNTER, "EVT COUNTER=",            readCmd,  STATUS_REG_ADDR,  EVT_COUNTER_ADDR,  "Show the event counter"},
-    {"l10 counter",   READ_L10COUNTER, "L1_0 COUNTER=",           readCmd,  L1CNT_REG_ADDR,   L1_0_COUNTER_ADDR, "Show the L1_0 counter"},
-    {"l11 counter",   READ_L11COUNTER, "L1_1 COUNTER=",           readCmd,  L1CNT_REG_ADDR,   L1_1_COUNTER_ADDR, "Show the L1_1 counter"},
-    {"l12 counter",   READ_L12COUNTER, "L1_2 COUNTER=",           readCmd,  L1CNT_REG_ADDR,   L1_2_COUNTER_ADDR, "Show the L1_2 counter"},
-    {"l13 counter",   READ_L13COUNTER, "L1_3 COUNTER=",           readCmd,  L1CNT_REG_ADDR,   L1_3_COUNTER_ADDR, "Show the L1_3 counter"},
-    {"exit",          EXIT,            "EXIT\n",                  echo,     NONE,             NONE,              "Exit and close the connection"},
-    {"help",          HELP,            NULL,                      help,     NONE,             NONE,              "Print this help message"}
+    {"start run",     START_RUN,         "START RUN\n",             writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Start the acquisition run"},
+    {"stop run",      STOP_RUN,          "STOP RUN\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Stop the acquisition run"},
+    {"rel busy",      RELEASE_BUSY,      "RELEASE BUSY\n",          writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Release the clkBoard busy signal"},
+    {"set busy",      SET_BUSY,          "SET BUSY\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Set the clkBoard busy signal"},
+    {"trg",           TRIGGER,           "TRIGGER\n",               writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Send a software trigger signal"},
+    {"gps configure", CONFIGURE_GPS,     "CONFIGURE GPS\n",         writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Configure the GPSs (all of them)"},
+    {"gps1pps on",    GPS1_ON,           "GPS1PPS ON\n",            writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable the PPS from GPS1"},
+    {"gps2pps on",    GPS2_ON,           "GPS2PPS ON\n",            writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable the PPS from GPS2"},
+    {"clkpps on",     CLKPPS_ON,         "CLKPPS ON\n",             writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable the PPS from CC clkBoard"},
+    {"gps1pps no",    GPS1_NO,           "NO GPS1\n",               writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable the PPS from GPS1"},
+    {"gps2pps no",    GPS2_NO,           "NO GPS2\n",               writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable the PPS from GPS2"},
+    {"clkpps no",     CLKPPS_NO,         "NO CLKPPS\n",             writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable the PPS from CC clkBoard"},
+    {"ppsauto on",    GPS_AUTO_ON,       "GPS AUTO ON\n",           writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable the auto selection of PPS"},
+    {"ppsauto no",    GPS_AUTO_NO,       "GPS AUTO NO\n",           writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable the auto selection of PPS"},
+    {"gtuint on",     GTU_INT_ON,        "INTERNAL GTU ON\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable internal GTU generation"},
+    {"gtuint no",     GTU_INT_NO,        "INTERNAL GTU NO\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable internal GTU generation"},
+    {"clk40int on",   CLK40_INT_ON,      "INTERNAL 40MHz CLK ON\n", writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable internal 40MHz clock generation"},
+    {"clk40int no",   CLK40_INT_NO,      "INTERNAL 40MHz CLK NO\n", writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable internal 40MHz clock generation"},
+    {"gtu reset",     RESET_GTU_COUNT,   "RESET GTU COUNT\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Reset the GTU counter"},
+    {"evt reset",     RESET_EVT_COUNT,   "RESET EVT COUNT\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Reset the event counter"},
+    {"l1 reset",      RESET_L1_COUNT,    "RESET L1 COUNT\n",        writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Reset the L1 counters"},
+    {"all reset",     RESET_ALL_COUNT,   "RESET ALL COUNT\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Reset all the counters"},
+    {"ppstrg on",     PPS_TRG_ON,        "PPS TRG ON\n",            writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable triggering on PPS"},
+    {"ppstrg off",    PPS_TRG_OFF,       "PPS TRG OFF\n",           writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable triggering on PPS"},
+    {"msk exttrg0",   MASK_EXT_TRG0,     "MASK EXT TRG0\n",         writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Mask external trigger 0"},
+    {"usk exttrg0",   UNMASK_EXT_TRG0,   "UNMASK EXT TRG0\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Unmask external trigger 0"},
+    {"msk exttrg1",   MASK_EXT_TRG1,     "MASK EXT TRG1\n",         writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Mask external trigger 1"},
+    {"usk exttrg1",   UNMASK_EXT_TRG1,   "UNMASK EXT TRG1\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Unmask external trigger 1"},
+    {"zq0 no",        NO_ZYNQ0,          "NO ZYNQ0\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable Zynq 0"},
+    {"zq1 no",        NO_ZYNQ1,          "NO ZYNQ1\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable Zynq 1"},
+    {"zq2 no",        NO_ZYNQ2,          "NO ZYNQ2\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable Zynq 2"},
+    {"zq3 no",        NO_ZYNQ3,          "NO ZYNQ3\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable Zynq 3"},
+    {"zq0 on",        ZYNQ0_ON,          "ZYNQ0 ON\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable Zynq 0"},
+    {"zq1 on",        ZYNQ1_ON,          "ZYNQ1 ON\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable Zynq 1"},
+    {"zq2 on",        ZYNQ2_ON,          "ZYNQ2 ON\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable Zynq 2"},
+    {"zq3 on",        ZYNQ3_ON,          "ZYNQ3 ON\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable Zynq 3"},
+    {"status",        READ_STATUS,       NULL,                      readCmd,  STATUS_REG_ADDR,   STATUS_LO_ADDR,     "Show the decoded status register"},
+    {"gtu counter",   READ_GTUCOUNTER,   "GTU COUNTER=",            readCmd,  CNT_REG_ADDR,      GTU_COUNTER_ADDR,   "Show the GTU counter"},
+    {"pps counter",   READ_PPSCOUNTER,   "PPS COUNTER=",            readCmd,  CNT_REG_ADDR,      PPS_COUNTER_ADDR,   "Show the PPS counter"},
+    {"evt counter",   READ_EVTCOUNTER,   "EVT COUNTER=",            readCmd,  CNT_REG_ADDR,      EVT_COUNTER_ADDR,   "Show the event counter"},
+    {"clk40 counter", READ_CLK40COUNTER, "CLK40 COUNTER=",          readCmd,  CNT_REG_ADDR,      CLK40_COUNTER_ADDR, "Show the 40MHz clock counter"},
+    {"l10 counter",   READ_L10COUNTER,   "L1_0 COUNTER=",           readCmd,  L1CNT_03_REG_ADDR, L1_0_COUNTER_ADDR,  "Show the L1_0 counter"},
+    {"l11 counter",   READ_L11COUNTER,   "L1_1 COUNTER=",           readCmd,  L1CNT_03_REG_ADDR, L1_1_COUNTER_ADDR,  "Show the L1_1 counter"},
+    {"l12 counter",   READ_L12COUNTER,   "L1_2 COUNTER=",           readCmd,  L1CNT_03_REG_ADDR, L1_2_COUNTER_ADDR,  "Show the L1_2 counter"},
+    {"l13 counter",   READ_L13COUNTER,   "L1_3 COUNTER=",           readCmd,  L1CNT_03_REG_ADDR, L1_3_COUNTER_ADDR,  "Show the L1_3 counter"},
+    {"l14 counter",   READ_L14COUNTER,   "L1_4 COUNTER=",           readCmd,  L1CNT_47_REG_ADDR, L1_4_COUNTER_ADDR,  "Show the L1_4 counter"},
+    {"l15 counter",   READ_L15COUNTER,   "L1_5 COUNTER=",           readCmd,  L1CNT_47_REG_ADDR, L1_5_COUNTER_ADDR,  "Show the L1_5 counter"},
+    {"l16 counter",   READ_L16COUNTER,   "L1_6 COUNTER=",           readCmd,  L1CNT_47_REG_ADDR, L1_6_COUNTER_ADDR,  "Show the L1_6 counter"},
+    {"fw sha",        READ_FWSHA,        "FW SHA=",                 readCmd,  STATUS_REG_ADDR,   FW_SHA_ADDR,        "Show the firmware git SHA (USR_ACCESS)"},
+    {"exit",          EXIT,              "EXIT\n",                  echo,     NONE,              NONE,               "Exit and close the connection"},
+    {"help",          HELP,              NULL,                      help,     NONE,              NONE,               "Print this help message"}
 };
 
 static void help(axiRegisters_t *regDev, int connfd, cmd_t *c){

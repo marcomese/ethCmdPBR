@@ -56,6 +56,19 @@ int openUioByName(const char *name) {
     return -1;
 }
 
+volatile uint32_t* regionOf(axiRegisters_t* regDev, uint32_t baseAddr){
+    switch(baseAddr){
+        case CTRL_REG_ADDR:      return regDev->ctrlReg;
+        case CNT_REG_ADDR:       return regDev->cntReg;
+        case L1CNT_03_REG_ADDR:  return regDev->l1Cnt03Reg;
+        case ALIVEDEAD_REG_ADDR: return regDev->aliveDeadReg;
+        case L1CNT_47_REG_ADDR:  return regDev->l1Cnt47Reg;
+        case STATUS_REG_ADDR:    return regDev->statusReg;
+        case DMA_REG_ADDR:       return regDev->dmaReg;
+        default:                 return NULL;
+    }
+}
+
 uint32_t readReg(volatile uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr){
     uint32_t offset = getOffset(baseAddr, regAddr);
     return *(devAddr + offset);

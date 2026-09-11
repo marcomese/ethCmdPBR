@@ -4,6 +4,25 @@
 #include "gps.h"
 #include "imu.h"
 
+/* Open the UIO device called uioName and map its first region; exits on failure */
+static volatile uint32_t* mapUio(const char* uioName, const char* desc){
+    int fd = openUioByName(uioName);
+    if(fd < 0){
+        fprintf(stderr,"Error in opening UIO for %s (%s)\n", uioName, desc);
+        exit(EXIT_FAILURE);
+    }
+
+    void* mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+
+    if(mmapRet == MAP_FAILED){
+        fprintf(stderr,"Error in mapping %s (%s)\n", uioName, desc);
+        exit(EXIT_FAILURE);
+    }
+
+    return (volatile uint32_t*)mmapRet;
+}
+
 int main(){
     const int keepalive = TCP_KEEPALIVE_ON;
     const int keepidle  = TCP_KEEPIDLE_SEC;
@@ -28,8 +47,6 @@ int main(){
     volatile uint32_t* fifoData;
     int err = -1;
     int tries = 0;
-    void* mmapRet = NULL;
-    int fd   = 0;
     uint8_t boardID = 0;
     int cfgIrq[GPS_NUM] = {0, 0};
     char gpsStr[DATA_GPS_BYTES] = "";
@@ -51,101 +68,15 @@ int main(){
         }
     }
 
-    fd = openUioByName("AXIRegister@43c00000");
-    if(fd < 0){
-        fprintf(stderr,"Error in opening UIO for AXIRegister@43c00000 (commands register)\n");
-        exit(EXIT_FAILURE);
-    }
-
-    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED){
-        fprintf(stderr,"Error in mapping CTRL_REG_ADDR\n");
-        exit(EXIT_FAILURE);
-    }
-
-    axiRegs.ctrlReg = (uint32_t*)mmapRet;
-
-    close(fd);
-
-    fd = openUioByName("AXIStatusReg@43c10000");
-    if(fd < 0){
-        fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c10000 (status and counters register)\n");
-        exit(EXIT_FAILURE);
-    }
-
-    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED){
-        fprintf(stderr,"Error in mapping STATUS_REG_ADDR\n");
-        exit(EXIT_FAILURE);
-    }
-
-    axiRegs.statusReg = (uint32_t*)mmapRet;
-
-    close(fd);
-
-    fd  = openUioByName("AXIStatusReg@43c20000");
-    if(fd < 0){
-        fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c20000 (l1 counters register)\n");
-        exit(EXIT_FAILURE);
-    }
-
-    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED){
-        fprintf(stderr,"Error in mapping L1CNT_REG_ADDR\n");
-        exit(EXIT_FAILURE);
-    }
-
-    axiRegs.l1CntReg = (uint32_t*)mmapRet;
-
-    close(fd);
-
-    fd  = openUioByName("AXIStatusReg@43c30000");
-    if(fd < 0){
-        fprintf(stderr,"Error in opening UIO for AXIStatusReg@43c30000 (pps, alive/dead counters and trg flag register)\n");
-        exit(EXIT_FAILURE);
-    }
-
-    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED){
-        fprintf(stderr,"Error in mapping PPSADFL_REG_ADDR\n");
-        exit(EXIT_FAILURE);
-    }
-
-    axiRegs.ppsadflReg = (uint32_t*)mmapRet;
-
-    close(fd);
-
-    fd = openUioByName("dma@40400000");
-    if(fd < 0){
-        fprintf(stderr,"Error in opening UIO for dma@40400000 (DMA)\n");
-        exit(EXIT_FAILURE);
-    }
-
-    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED){
-        fprintf(stderr,"Error in mapping DMA\n");
-        exit(EXIT_FAILURE);
-    }
-
-    axiRegs.dmaReg = (uint32_t*)mmapRet;
-
-    close(fd);
-
-    fd = openUioByName("dma_buffer");
-    if(fd < 0){
-        fprintf(stderr,"Error in opening UIO for dma_buffer (DMA pool)\n");
-        exit(EXIT_FAILURE);
-    }
-
-    mmapRet = mmap(0, AXI_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if(mmapRet == MAP_FAILED){
-        fprintf(stderr,"Error in mapping DATA_ADDR\n");
-        exit(EXIT_FAILURE);
-    }
-
-    fifoData = (volatile uint32_t*)mmapRet;
-
-    close(fd);
+    /* UIO names carry the AXI base address: they must match the device tree */
+    axiRegs.ctrlReg      = mapUio("AXIRegister@43c00000",  "commands register");
+    axiRegs.cntReg       = mapUio("AXIStatusReg@43c10000", "evt, pps, gtu and clk40 counters");
+    axiRegs.l1Cnt03Reg   = mapUio("AXIStatusReg@43c20000", "L1 counters 0..3");
+    axiRegs.aliveDeadReg = mapUio("AXIStatusReg@43c30000", "alive/dead time and fifo count");
+    axiRegs.l1Cnt47Reg   = mapUio("AXIStatusReg@43c40000", "L1 counters 4..6");
+    axiRegs.statusReg    = mapUio("AXIStatusReg@43c50000", "status, trg flags and fw sha");
+    axiRegs.dmaReg       = mapUio("dma@40400000",          "DMA");
+    fifoData             = mapUio("dma_buffer",            "DMA pool");
 
     printf("Initializing DMA...\n");
     dma_init_s2mm(axiRegs.dmaReg);

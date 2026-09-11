@@ -53,6 +53,11 @@
 #define GTU_INT_NO        0x0000FFFF
 #define CLK40_INT_ON      0xAAAA5555
 #define CLK40_INT_NO      0x5555AAAA
+#define READ_FWSHA        0x0000000F
+#define READ_CLK40COUNTER 0x0000000E
+#define READ_L16COUNTER   0x0000000D
+#define READ_L15COUNTER   0x0000000C
+#define READ_L14COUNTER   0x0000000B
 #define READ_GTUCOUNTER   0x00000009
 #define READ_PPSCOUNTER   0x00000008
 #define READ_EVTCOUNTER   0x00000007
@@ -114,10 +119,12 @@ _Static_assert(EXIT <= LOCAL_CMD_MAX, "EXIT outside the local command id window"
 _Static_assert(HELP <= LOCAL_CMD_MAX, "HELP outside the local command id window");
 _Static_assert(READ_STATUS <= LOCAL_CMD_MAX, "READ_STATUS outside the local command id window");
 _Static_assert(READ_GTUCOUNTER <= LOCAL_CMD_MAX, "READ_GTUCOUNTER outside the local command id window");
+_Static_assert(READ_FWSHA <= LOCAL_CMD_MAX, "READ_FWSHA outside the local command id window");
 
+/* must match the generics of command_decoder in the block design */
 #define EXTTRG_NUM           2
 
-#define ZYNQ_NUM             4
+#define ZYNQ_NUM             7
 
 #define PPS_NUM              3
 
