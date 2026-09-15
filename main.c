@@ -51,8 +51,6 @@ int main(){
     int cfgIrq[GPS_NUM] = {0, 0};
     char gpsStr[DATA_GPS_BYTES] = "";
 
-    sortCmd();
-
     for(int i = 0; i < CONN_MAX; i++){
         cmdDecodeArg[i].regs    = &axiRegs;
         cmdDecodeArg[i].inUse   = 0;

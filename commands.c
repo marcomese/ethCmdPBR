@@ -1,7 +1,10 @@
+#include <stdarg.h>
 #include "commands.h"
+#include "gps.h"
 
 #define COUNT(ARRAY) (sizeof(ARRAY) / sizeof(*ARRAY))
 
+/* status_register, fixed block (bit 13..0), from command_decoder.vhd */
 #define RUN_POS         0U   /* running (run active: run cmd + all selected zynq busy low) */
 #define RUNCTRLBUSY_POS 1U   /* runCtrlBusy    */
 #define PLAXISBUSY_POS  2U   /* plToAxiSBusy: adapter busy OR downstream FIFO not ready */
@@ -11,14 +14,18 @@
 #define GPSAUTO_POS     6U   /* pps_auto       */
 #define FSMSTATE_POS    7U   /* fsmState (4 bit) -> bit 10..7 */
 #define TIMEOUT_POS     11U  /* run start timed out waiting for the zynq busy lines */
+#define GTUSEL_POS      12U  /* internal GTU selected   */
+#define CLK40SEL_POS    13U  /* internal clk40M selected */
 
-#define PARAM_BASE      12U
-#define TIMEOUTFLAG_POS (PARAM_BASE)                  /* ZYNQ_NUM   bit */
-#define EXTTRG_POS      (TIMEOUTFLAG_POS + ZYNQ_NUM)   /* EXTTRG_NUM bit */
-#define PPSEN_POS       (EXTTRG_POS      + EXTTRG_NUM) /* PPS_NUM    bit */
-#define PPSPRES_POS     (PPSEN_POS       + PPS_NUM)    /* PPS_NUM    bit */
-#define ZQEN_POS        (PPSPRES_POS     + PPS_NUM)    /* ZYNQ_NUM   bit */
-#define ZQBUSY_POS      (ZQEN_POS        + ZYNQ_NUM)   /* ZYNQ_NUM   bit */
+/* parametric block, stacked from bit 14 */
+#define PARAM_BASE      14U
+#define XGAMMA_POS      (PARAM_BASE)                  /* ZYNQ_NUM   bit */
+#define TIMEOUTFLAG_POS (XGAMMA_POS      + ZYNQ_NUM)  /* ZYNQ_NUM   bit */
+#define EXTTRG_POS      (TIMEOUTFLAG_POS + ZYNQ_NUM)  /* EXTTRG_NUM bit */
+#define PPSEN_POS       (EXTTRG_POS      + EXTTRG_NUM)/* PPS_NUM    bit */
+#define PPSPRES_POS     (PPSEN_POS       + PPS_NUM)   /* PPS_NUM    bit */
+#define ZQEN_POS        (PPSPRES_POS     + PPS_NUM)   /* ZYNQ_NUM   bit */
+#define ZQBUSY_POS      (ZQEN_POS        + ZYNQ_NUM)  /* ZYNQ_NUM   bit */
 #define STATUS_USED     (ZQBUSY_POS      + ZYNQ_NUM)
 
 #define STATUS_LEN     64U
@@ -28,10 +35,12 @@ _Static_assert(STATUS_USED <= STATUS_LEN, "status_register fields exceed STATUS_
 #define RUN_CTRL_POS  FSMSTATE_POS
 #define RUN_CTRL_MASK (0x0FU << RUN_CTRL_POS)
 
-static uint8_t sorted = 0;
+/* channel codes, NUM(0..6) in command_decoder.vhd */
+static const uint8_t NUM[ZYNQ_NUM] = {0x0F, 0x33, 0x55, 0x66, 0x99, 0xAA, 0xCC};
+
+_Static_assert(ZYNQ_NUM <= 7, "NUM[] holds at most 7 channel codes");
 
 const char *errStr = "Error invalid command.\n";
-const char *invalidAddr = "Error: invalid register address.\n";
 
 const char runCtrlDecode[16][STATUS_ID_MAX_LEN] = {
     "IDLE",
@@ -85,7 +94,10 @@ static void decodeStatusReg(uint64_t statusReg, char* statusStr){
     appendBit(resStr, "PPSTRGON",   statusReg, PPSTRG_POS);
     appendBit(resStr, "GPSAUTO",    statusReg, GPSAUTO_POS);
     appendBit(resStr, "TIMEOUT",    statusReg, TIMEOUT_POS);
+    appendBit(resStr, "GTUINT",     statusReg, GTUSEL_POS);
+    appendBit(resStr, "CLK40INT",   statusReg, CLK40SEL_POS);
 
+    appendField(resStr, "XGAMMA",  statusReg, XGAMMA_POS,      ZYNQ_NUM);
     appendField(resStr, "TOUTFLG", statusReg, TIMEOUTFLAG_POS, ZYNQ_NUM);
     appendField(resStr, "EXTTRG",  statusReg, EXTTRG_POS,      EXTTRG_NUM);
     appendField(resStr, "PPSEN",   statusReg, PPSEN_POS,       PPS_NUM);
@@ -97,160 +109,453 @@ static void decodeStatusReg(uint64_t statusReg, char* statusStr){
 
     strncat(resStr, tempStr, STATUS_ID_MAX_LEN);
 
-    strncpy(statusStr,resStr,TCP_SND_BUF);
+    strncpy(statusStr, resStr, TCP_SND_BUF);
 }
 
-static void writeCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
-    writeReg(regDev->ctrlReg, c->baseAddr, c->regAddr, c->cmdVal);
-    printf("%s", c->feedbackStr);
-    write(connfd, c->feedbackStr, strlen(c->feedbackStr));
+/* unsigned long is 32 bit on the Zynq: 64 bit keeps periods up to 8 s */
+static int parseUInt(const char* s, unsigned long long* val){
+    char* end = NULL;
+
+    if(s == NULL || *s == '\0')
+        return -1;
+
+    errno = 0;
+    *val = strtoull(s, &end, 0);
+
+    return (errno == 0 && *end == '\0') ? 0 : -1;
 }
 
-static void readCmd(axiRegisters_t *regDev, int connfd, cmd_t *c){
-    uint32_t regVal = 0;
-    uint64_t status = 0;
-    char resStr[TCP_SND_BUF] = "";
-    volatile uint32_t* reg = regionOf(regDev, c->baseAddr);
+/* "<n>" -> NUM[n], "all" -> ARG_ALL (idx = -1); returns -1 on bad input */
+static int parseChannel(const char* s, uint8_t* code, int* idx){
+    unsigned long long n = 0;
 
-    if(reg == NULL){
-        snprintf(resStr, TCP_SND_BUF, "%s", invalidAddr);
-    }else{
-        switch(c->cmdVal){
-            case READ_STATUS:
-                status  = readReg(reg, c->baseAddr, STATUS_LO_ADDR);
-                status |= (uint64_t)readReg(reg, c->baseAddr, STATUS_HI_ADDR) << 32;
-                decodeStatusReg(status, resStr);
-                break;
-            case READ_FWSHA:
-                regVal = readReg(reg, c->baseAddr, c->regAddr);
-                if(regVal == 0)
-                    snprintf(resStr, TCP_SND_BUF, "%s0000000 (non-reproducible build)\n", c->feedbackStr);
-                else
-                    snprintf(resStr, TCP_SND_BUF, "%s%07x\n", c->feedbackStr,
-                             (unsigned int)(regVal & FW_SHA_MASK));
-                break;
-            default:
-                regVal = readReg(reg, c->baseAddr, c->regAddr);
-                snprintf(resStr, TCP_SND_BUF, "%s%u\n", c->feedbackStr, (unsigned int)regVal);
-                break;
+    if(strcmp(s, "all") == 0){
+        *code = ARG_ALL;
+        *idx  = -1;
+        return 0;
+    }
+
+    if(parseUInt(s, &n) != 0 || n >= ZYNQ_NUM)
+        return -1;
+
+    *code = NUM[n];
+    *idx  = (int)n;
+    return 0;
+}
+
+/* enable/on -> ARG_ON, disable/off -> ARG_OFF */
+static int parseOnOff(const char* s, uint8_t* code){
+    if(strcmp(s, "enable") == 0 || strcmp(s, "on") == 0){
+        *code = ARG_ON;
+        return 0;
+    }
+    if(strcmp(s, "disable") == 0 || strcmp(s, "off") == 0){
+        *code = ARG_OFF;
+        return 0;
+    }
+    return -1;
+}
+
+/* gtu internal <ns> -> period in clk cycles */
+static int encodeGtuPeriod(unsigned long long ns, uint16_t* cycles, char* reply){
+    if(ns % PL_CLK_NS != 0){
+        snprintf(reply, TCP_SND_BUF, "Error: GTU period must be a multiple of %lu ns\n", PL_CLK_NS);
+        return -1;
+    }
+
+    unsigned long long cyc = ns / PL_CLK_NS;
+
+    if(cyc < GTU_PERIOD_MIN_CYC || cyc > GTU_PERIOD_MAX_CYC){
+        snprintf(reply, TCP_SND_BUF, "Error: GTU period out of range (%lu..%lu ns)\n",
+                 GTU_PERIOD_MIN_CYC * PL_CLK_NS, GTU_PERIOD_MAX_CYC * PL_CLK_NS);
+        return -1;
+    }
+
+    *cycles = (uint16_t)cyc;
+    return 0;
+}
+
+/* trg self <ns> -> finest scale on which the period is an exact count of units:
+ * scale k = 10^k * PL_CLK_NS, count 1..SELF_COUNT_MAX */
+static int encodeSelfPeriod(unsigned long long ns, uint16_t* field, char* reply){
+    unsigned long long unit = PL_CLK_NS;
+
+    for(unsigned int scale = 0; scale < SELF_SCALE_NUM; scale++, unit *= 10){
+        if(ns % unit != 0)
+            continue;
+
+        unsigned long long count = ns / unit;
+
+        if(count >= 1 && count <= SELF_COUNT_MAX){
+            *field = (uint16_t)((scale << SELF_SCALE_POS) | count);
+            return 0;
         }
     }
 
-    printf("%s", resStr);
-    write(connfd, resStr, strlen(resStr));
+    snprintf(reply, TCP_SND_BUF,
+             "Error: self trigger period not representable (%lu ns .. %llu ns, "
+             "multiple of the scale step)\n",
+             PL_CLK_NS, (unsigned long long)SELF_COUNT_MAX * PL_CLK_NS * 100000ULL);
+    return -1;
 }
 
-static void echo(axiRegisters_t *regDev, int connfd, cmd_t *c){
-    (void)c;
-    (void)regDev;
-
-    printf("%s", c->feedbackStr);
-    write(connfd, c->feedbackStr, strlen(c->feedbackStr));
+static uint32_t sendPl(axiRegisters_t* regDev, uint32_t word, const char* echo, char* reply){
+    writeReg(regDev->ctrlReg, CTRL_REG_ADDR, CMD_RECV_ADDR, word);
+    snprintf(reply, TCP_SND_BUF, "%s (0x%08" PRIX32 ")\n", echo, word);
+    return word;
 }
 
-static void help(axiRegisters_t *regDev, int connfd, cmd_t *c);
+static uint32_t readPl(axiRegisters_t* regDev, uint32_t baseAddr, uint32_t regAddr){
+    return readReg(regionOf(regDev, baseAddr), baseAddr, regAddr);
+}
 
-static cmd_t commands[] = {
-    {"start run",     START_RUN,         "START RUN\n",             writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Start the acquisition run"},
-    {"stop run",      STOP_RUN,          "STOP RUN\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Stop the acquisition run"},
-    {"rel busy",      RELEASE_BUSY,      "RELEASE BUSY\n",          writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Release the clkBoard busy signal"},
-    {"set busy",      SET_BUSY,          "SET BUSY\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Set the clkBoard busy signal"},
-    {"trg",           TRIGGER,           "TRIGGER\n",               writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Send a software trigger signal"},
-    {"gps configure", CONFIGURE_GPS,     "CONFIGURE GPS\n",         writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Configure the GPSs (all of them)"},
-    {"gps1pps on",    GPS1_ON,           "GPS1PPS ON\n",            writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable the PPS from GPS1"},
-    {"gps2pps on",    GPS2_ON,           "GPS2PPS ON\n",            writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable the PPS from GPS2"},
-    {"clkpps on",     CLKPPS_ON,         "CLKPPS ON\n",             writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable the PPS from CC clkBoard"},
-    {"gps1pps no",    GPS1_NO,           "NO GPS1\n",               writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable the PPS from GPS1"},
-    {"gps2pps no",    GPS2_NO,           "NO GPS2\n",               writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable the PPS from GPS2"},
-    {"clkpps no",     CLKPPS_NO,         "NO CLKPPS\n",             writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable the PPS from CC clkBoard"},
-    {"ppsauto on",    GPS_AUTO_ON,       "GPS AUTO ON\n",           writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable the auto selection of PPS"},
-    {"ppsauto no",    GPS_AUTO_NO,       "GPS AUTO NO\n",           writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable the auto selection of PPS"},
-    {"gtuint on",     GTU_INT_ON,        "INTERNAL GTU ON\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable internal GTU generation"},
-    {"gtuint no",     GTU_INT_NO,        "INTERNAL GTU NO\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable internal GTU generation"},
-    {"clk40int on",   CLK40_INT_ON,      "INTERNAL 40MHz CLK ON\n", writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable internal 40MHz clock generation"},
-    {"clk40int no",   CLK40_INT_NO,      "INTERNAL 40MHz CLK NO\n", writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable internal 40MHz clock generation"},
-    {"gtu reset",     RESET_GTU_COUNT,   "RESET GTU COUNT\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Reset the GTU counter"},
-    {"evt reset",     RESET_EVT_COUNT,   "RESET EVT COUNT\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Reset the event counter"},
-    {"l1 reset",      RESET_L1_COUNT,    "RESET L1 COUNT\n",        writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Reset the L1 counters"},
-    {"all reset",     RESET_ALL_COUNT,   "RESET ALL COUNT\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Reset all the counters"},
-    {"ppstrg on",     PPS_TRG_ON,        "PPS TRG ON\n",            writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable triggering on PPS"},
-    {"ppstrg off",    PPS_TRG_OFF,       "PPS TRG OFF\n",           writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable triggering on PPS"},
-    {"msk exttrg0",   MASK_EXT_TRG0,     "MASK EXT TRG0\n",         writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Mask external trigger 0"},
-    {"usk exttrg0",   UNMASK_EXT_TRG0,   "UNMASK EXT TRG0\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Unmask external trigger 0"},
-    {"msk exttrg1",   MASK_EXT_TRG1,     "MASK EXT TRG1\n",         writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Mask external trigger 1"},
-    {"usk exttrg1",   UNMASK_EXT_TRG1,   "UNMASK EXT TRG1\n",       writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Unmask external trigger 1"},
-    {"zq0 no",        NO_ZYNQ0,          "NO ZYNQ0\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable Zynq 0"},
-    {"zq1 no",        NO_ZYNQ1,          "NO ZYNQ1\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable Zynq 1"},
-    {"zq2 no",        NO_ZYNQ2,          "NO ZYNQ2\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable Zynq 2"},
-    {"zq3 no",        NO_ZYNQ3,          "NO ZYNQ3\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Disable Zynq 3"},
-    {"zq0 on",        ZYNQ0_ON,          "ZYNQ0 ON\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable Zynq 0"},
-    {"zq1 on",        ZYNQ1_ON,          "ZYNQ1 ON\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable Zynq 1"},
-    {"zq2 on",        ZYNQ2_ON,          "ZYNQ2 ON\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable Zynq 2"},
-    {"zq3 on",        ZYNQ3_ON,          "ZYNQ3 ON\n",              writeCmd, CTRL_REG_ADDR,     CMD_RECV_ADDR,      "Enable Zynq 3"},
-    {"status",        READ_STATUS,       NULL,                      readCmd,  STATUS_REG_ADDR,   STATUS_LO_ADDR,     "Show the decoded status register"},
-    {"gtu counter",   READ_GTUCOUNTER,   "GTU COUNTER=",            readCmd,  CNT_REG_ADDR,      GTU_COUNTER_ADDR,   "Show the GTU counter"},
-    {"pps counter",   READ_PPSCOUNTER,   "PPS COUNTER=",            readCmd,  CNT_REG_ADDR,      PPS_COUNTER_ADDR,   "Show the PPS counter"},
-    {"evt counter",   READ_EVTCOUNTER,   "EVT COUNTER=",            readCmd,  CNT_REG_ADDR,      EVT_COUNTER_ADDR,   "Show the event counter"},
-    {"clk40 counter", READ_CLK40COUNTER, "CLK40 COUNTER=",          readCmd,  CNT_REG_ADDR,      CLK40_COUNTER_ADDR, "Show the 40MHz clock counter"},
-    {"l10 counter",   READ_L10COUNTER,   "L1_0 COUNTER=",           readCmd,  L1CNT_03_REG_ADDR, L1_0_COUNTER_ADDR,  "Show the L1_0 counter"},
-    {"l11 counter",   READ_L11COUNTER,   "L1_1 COUNTER=",           readCmd,  L1CNT_03_REG_ADDR, L1_1_COUNTER_ADDR,  "Show the L1_1 counter"},
-    {"l12 counter",   READ_L12COUNTER,   "L1_2 COUNTER=",           readCmd,  L1CNT_03_REG_ADDR, L1_2_COUNTER_ADDR,  "Show the L1_2 counter"},
-    {"l13 counter",   READ_L13COUNTER,   "L1_3 COUNTER=",           readCmd,  L1CNT_03_REG_ADDR, L1_3_COUNTER_ADDR,  "Show the L1_3 counter"},
-    {"l14 counter",   READ_L14COUNTER,   "L1_4 COUNTER=",           readCmd,  L1CNT_47_REG_ADDR, L1_4_COUNTER_ADDR,  "Show the L1_4 counter"},
-    {"l15 counter",   READ_L15COUNTER,   "L1_5 COUNTER=",           readCmd,  L1CNT_47_REG_ADDR, L1_5_COUNTER_ADDR,  "Show the L1_5 counter"},
-    {"l16 counter",   READ_L16COUNTER,   "L1_6 COUNTER=",           readCmd,  L1CNT_47_REG_ADDR, L1_6_COUNTER_ADDR,  "Show the L1_6 counter"},
-    {"fw sha",        READ_FWSHA,        "FW SHA=",                 readCmd,  STATUS_REG_ADDR,   FW_SHA_ADDR,        "Show the firmware git SHA (USR_ACCESS)"},
-    {"exit",          EXIT,              "EXIT\n",                  echo,     NONE,              NONE,               "Exit and close the connection"},
-    {"help",          HELP,              NULL,                      help,     NONE,              NONE,               "Print this help message"}
+static uint32_t readL1(axiRegisters_t* regDev, int ch){
+    if(ch < 4)
+        return readPl(regDev, L1CNT_03_REG_ADDR, L1_0_COUNTER_ADDR + 4U * (uint32_t)ch);
+
+    return readPl(regDev, L1CNT_47_REG_ADDR, L1_4_COUNTER_ADDR + 4U * (uint32_t)(ch - 4));
+}
+
+static void appendLine(char* reply, const char* fmt, ...){
+    char line[STATUS_ID_MAX_LEN] = "";
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+
+    strncat(reply, line, TCP_SND_BUF - strlen(reply) - 1);
+}
+
+typedef uint32_t (*cmdFunc_t)(axiRegisters_t* regDev, int argc, char** argv, char* reply);
+
+static uint32_t usage(const char* text, char* reply){
+    snprintf(reply, TCP_SND_BUF, "Error: usage: %s\n", text);
+    return CMD_ERROR;
+}
+
+static uint32_t cmdRun(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    if(argc == 2 && strcmp(argv[1], "start") == 0)
+        return sendPl(regDev, PL_CMD(CMD_RUN, ARG_ON, 0, 0), "RUN START", reply);
+    if(argc == 2 && strcmp(argv[1], "stop") == 0)
+        return sendPl(regDev, PL_CMD(CMD_RUN, ARG_OFF, 0, 0), "RUN STOP", reply);
+
+    return usage("run start|stop", reply);
+}
+
+static uint32_t cmdBusy(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    if(argc == 2 && strcmp(argv[1], "set") == 0)
+        return sendPl(regDev, PL_CMD(CMD_BSY, ARG_ON, 0, 0), "BUSY SET", reply);
+    if(argc == 2 && strcmp(argv[1], "release") == 0)
+        return sendPl(regDev, PL_CMD(CMD_BSY, ARG_OFF, 0, 0), "BUSY RELEASE", reply);
+
+    return usage("busy set|release", reply);
+}
+
+static uint32_t cmdTrg(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    const char* use = "trg soft | trg external|pps|clkb enable|disable | trg normal | trg self <ns>|0";
+    uint8_t onOff = 0;
+    unsigned long long ns = 0;
+    uint16_t field = 0;
+    char echo[STATUS_ID_MAX_LEN] = "";
+
+    if(argc == 2 && strcmp(argv[1], "soft") == 0)
+        return sendPl(regDev, PL_CMD(CMD_TRG, ARG_ON, 0, 0), "TRG SOFT", reply);
+
+    if(argc == 2 && strcmp(argv[1], "normal") == 0)
+        return sendPl(regDev, PL_CMD(CMD_TRG, ARG_NORMAL, 0, 0), "TRG NORMAL", reply);
+
+    if(argc == 3 && parseOnOff(argv[2], &onOff) == 0){
+        uint8_t src = 0;
+
+        if(strcmp(argv[1], "external") == 0)
+            src = ARG_OFF;
+        else if(strcmp(argv[1], "pps") == 0)
+            src = ARG_PPS;
+        else if(strcmp(argv[1], "clkb") == 0)
+            src = ARG_CLKB;
+        else
+            return usage(use, reply);
+
+        snprintf(echo, sizeof(echo), "TRG %s %s", argv[1], onOff == ARG_ON ? "ENABLE" : "DISABLE");
+        return sendPl(regDev, PL_CMD(CMD_TRG, src, onOff, 0), echo, reply);
+    }
+
+    if(argc == 3 && strcmp(argv[1], "self") == 0){
+        if(parseUInt(argv[2], &ns) != 0)
+            return usage(use, reply);
+
+        if(ns == 0)
+            return sendPl(regDev, PL_CMD(CMD_TRG, ARG_SELF, 0, 0), "TRG SELF OFF", reply);
+
+        if(encodeSelfPeriod(ns, &field, reply) != 0)
+            return CMD_ERROR;
+
+        snprintf(echo, sizeof(echo), "TRG SELF %llu ns", ns);
+        return sendPl(regDev, PL_CMD(CMD_TRG, ARG_SELF, field >> 8, field & 0xFF), echo, reply);
+    }
+
+    return usage(use, reply);
+}
+
+static uint32_t cmdGps(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    unsigned long long hi = 0, lo = 0;
+    uint8_t conf[GPS_CONF_LEN];
+
+    if(argc != 4 || strcmp(argv[1], "configure") != 0 ||
+       parseUInt(argv[2], &hi) != 0 || parseUInt(argv[3], &lo) != 0 ||
+       hi > 0xFFFFFFFFUL || lo > 0xFFFFFFFFUL)
+        return usage("gps configure <word hi> <word lo> (32 bit each, sent big endian)", reply);
+
+    /* the 8 bytes go to the UART as they are, most significant byte first */
+    for(int i = 0; i < 4; i++){
+        conf[i]     = (uint8_t)(hi >> (24 - 8 * i));
+        conf[4 + i] = (uint8_t)(lo >> (24 - 8 * i));
+    }
+    gpsSetConf(conf);
+
+    return sendPl(regDev, PL_CMD(CMD_GPS, ARG_ON, 0, 0), "GPS CONFIGURE", reply);
+}
+
+static uint32_t cmdPps(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    unsigned long long n = 0;
+
+    if(argc == 3 && strcmp(argv[1], "gps") == 0 && parseUInt(argv[2], &n) == 0 && (n == 1 || n == 2)){
+        char echo[STATUS_ID_MAX_LEN] = "";
+
+        snprintf(echo, sizeof(echo), "PPS GPS %llu", n);
+        return sendPl(regDev, PL_CMD(CMD_PPS, ARG_ON, n == 1 ? ARG_ON : ARG_OFF, 0), echo, reply);
+    }
+    if(argc == 2 && strcmp(argv[1], "clkb") == 0)
+        return sendPl(regDev, PL_CMD(CMD_PPS, ARG_OFF, 0, 0), "PPS CLKB", reply);
+    if(argc == 2 && strcmp(argv[1], "auto") == 0)
+        return sendPl(regDev, PL_CMD(CMD_PPS, ARG_PPS, 0, 0), "PPS AUTO", reply);
+
+    return usage("pps gps 1|2 | pps clkb | pps auto", reply);
+}
+
+static uint32_t cmdGtu(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    unsigned long long ns = 0;
+    uint16_t cycles = 0;
+
+    if(argc == 3 && strcmp(argv[1], "internal") == 0 && parseUInt(argv[2], &ns) == 0){
+        char echo[STATUS_ID_MAX_LEN] = "";
+
+        if(encodeGtuPeriod(ns, &cycles, reply) != 0)
+            return CMD_ERROR;
+
+        snprintf(echo, sizeof(echo), "GTU INTERNAL %llu ns", ns);
+        return sendPl(regDev, PL_CMD(CMD_GTU, ARG_ON, cycles >> 8, cycles & 0xFF), echo, reply);
+    }
+    if(argc == 2 && strcmp(argv[1], "external") == 0)
+        return sendPl(regDev, PL_CMD(CMD_GTU, ARG_OFF, 0, 0), "GTU EXTERNAL", reply);
+
+    return usage("gtu internal <ns> | gtu external", reply);
+}
+
+static uint32_t cmdClk40m(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    if(argc == 2 && strcmp(argv[1], "internal") == 0)
+        return sendPl(regDev, PL_CMD(CMD_40M, ARG_ON, 0, 0), "CLK40M INTERNAL", reply);
+    if(argc == 2 && strcmp(argv[1], "external") == 0)
+        return sendPl(regDev, PL_CMD(CMD_40M, ARG_OFF, 0, 0), "CLK40M EXTERNAL", reply);
+
+    return usage("clk40m internal|external", reply);
+}
+
+/* counter l1 <n>|all [reset] | counter evt|gtu|all [reset]
+ * without "reset" the counters are read here, with it the PL clears them */
+static uint32_t cmdCounter(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    const char* use = "counter l1 <n>|all [reset] | counter evt|gtu|all [reset]";
+    int reset = (argc >= 3 && strcmp(argv[argc - 1], "reset") == 0);
+    int nArgs = argc - reset;   /* tokens before the optional "reset" */
+
+    if(nArgs == 3 && strcmp(argv[1], "l1") == 0){
+        uint8_t code = 0;
+        int idx = -1;
+
+        if(parseChannel(argv[2], &code, &idx) != 0)
+            return usage(use, reply);
+
+        if(reset){
+            char echo[STATUS_ID_MAX_LEN] = "";
+
+            snprintf(echo, sizeof(echo), "COUNTER L1 %s RESET", argv[2]);
+            return sendPl(regDev, PL_CMD(CMD_CNT, ARG_ON, code, ARG_ON), echo, reply);
+        }
+
+        reply[0] = '\0';
+        if(idx < 0){
+            for(int ch = 0; ch < ZYNQ_NUM; ch++)
+                appendLine(reply, "L1_%d COUNTER=%" PRIu32 "\n", ch, readL1(regDev, ch));
+        }else{
+            appendLine(reply, "L1_%d COUNTER=%" PRIu32 "\n", idx, readL1(regDev, idx));
+        }
+        return CMD_LOCAL;
+    }
+
+    if(nArgs == 2){
+        uint8_t act = 0;
+
+        if(strcmp(argv[1], "evt") == 0)
+            act = ARG_OFF;
+        else if(strcmp(argv[1], "gtu") == 0)
+            act = ARG_PPS;
+        else if(strcmp(argv[1], "all") == 0)
+            act = ARG_NORMAL;
+        else
+            return usage(use, reply);
+
+        if(reset){
+            char echo[STATUS_ID_MAX_LEN] = "";
+
+            snprintf(echo, sizeof(echo), "COUNTER %s RESET", argv[1]);
+            return sendPl(regDev, PL_CMD(CMD_CNT, act, ARG_ON, 0), echo, reply);
+        }
+
+        reply[0] = '\0';
+        if(act == ARG_OFF || act == ARG_NORMAL)
+            appendLine(reply, "EVT COUNTER=%" PRIu32 "\n", readPl(regDev, CNT_REG_ADDR, EVT_COUNTER_ADDR));
+        if(act == ARG_PPS || act == ARG_NORMAL)
+            appendLine(reply, "GTU COUNTER=%" PRIu32 "\n", readPl(regDev, CNT_REG_ADDR, GTU_COUNTER_ADDR));
+        if(act == ARG_NORMAL){
+            appendLine(reply, "PPS COUNTER=%" PRIu32 "\n", readPl(regDev, CNT_REG_ADDR, PPS_COUNTER_ADDR));
+            appendLine(reply, "CLK40M COUNTER=%" PRIu32 "\n", readPl(regDev, CNT_REG_ADDR, CLK40_COUNTER_ADDR));
+            for(int ch = 0; ch < ZYNQ_NUM; ch++)
+                appendLine(reply, "L1_%d COUNTER=%" PRIu32 "\n", ch, readL1(regDev, ch));
+        }
+        return CMD_LOCAL;
+    }
+
+    return usage(use, reply);
+}
+
+static uint32_t cmdCh(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    const char* use = "ch enable|disable <n>|all | ch xgamma on|off <n>";
+    uint8_t onOff = 0, code = 0;
+    int idx = -1;
+    char echo[STATUS_ID_MAX_LEN] = "";
+
+    if(argc == 3 && parseOnOff(argv[1], &onOff) == 0 && parseChannel(argv[2], &code, &idx) == 0){
+        snprintf(echo, sizeof(echo), "CH %s %s", onOff == ARG_ON ? "ENABLE" : "DISABLE", argv[2]);
+        return sendPl(regDev, PL_CMD(CMD_CHN, onOff, code, 0), echo, reply);
+    }
+
+    if(argc >= 2 && strcmp(argv[1], "xgamma") == 0){
+        if(argc == 4 && strcmp(argv[2], "on") == 0 && parseChannel(argv[3], &code, &idx) == 0 && idx >= 0){
+            snprintf(echo, sizeof(echo), "CH XGAMMA ON %d", idx);
+            return sendPl(regDev, PL_CMD(CMD_CHN, ARG_PPS, ARG_ON, code), echo, reply);
+        }
+        if(argc == 3 && strcmp(argv[2], "off") == 0)
+            return sendPl(regDev, PL_CMD(CMD_CHN, ARG_PPS, ARG_OFF, 0), "CH XGAMMA OFF", reply);
+    }
+
+    return usage(use, reply);
+}
+
+static uint32_t cmdStatus(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    /* the two halves are read back to back, not atomically: fine for monitoring */
+    uint64_t status = readPl(regDev, STATUS_REG_ADDR, STATUS_LO_ADDR);
+    status |= (uint64_t)readPl(regDev, STATUS_REG_ADDR, STATUS_HI_ADDR) << 32;
+
+    if(argc == 1){
+        decodeStatusReg(status, reply);
+        return CMD_LOCAL;
+    }
+    if(argc == 2 && strcmp(argv[1], "raw") == 0){
+        snprintf(reply, TCP_SND_BUF, "STATUS=0x%016" PRIX64 "\n", status);
+        return CMD_LOCAL;
+    }
+
+    return usage("status [raw]", reply);
+}
+
+static uint32_t cmdFw(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    if(argc != 2 || strcmp(argv[1], "sha") != 0)
+        return usage("fw sha", reply);
+
+    uint32_t usr = readPl(regDev, STATUS_REG_ADDR, FW_SHA_ADDR);
+
+    if(usr == 0)
+        snprintf(reply, TCP_SND_BUF, "FW SHA=0000000 (non-reproducible build)\n");
+    else
+        snprintf(reply, TCP_SND_BUF, "FW SHA=%07" PRIx32 "\n", usr & FW_SHA_MASK);
+
+    return CMD_LOCAL;
+}
+
+static uint32_t cmdExit(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    (void)regDev; (void)argc; (void)argv;
+
+    snprintf(reply, TCP_SND_BUF, "EXIT\n");
+    return EXIT;
+}
+
+static uint32_t cmdHelp(axiRegisters_t* regDev, int argc, char** argv, char* reply);
+
+typedef struct{
+    const char* name;
+    cmdFunc_t   func;
+    const char* usage;
+} family_t;
+
+static const family_t families[] = {
+    {"run",     cmdRun,     "run start|stop"},
+    {"busy",    cmdBusy,    "busy set|release"},
+    {"trg",     cmdTrg,     "trg soft | trg external|pps|clkb enable|disable | trg normal | trg self <ns>|0"},
+    {"gps",     cmdGps,     "gps configure <word hi> <word lo>"},
+    {"pps",     cmdPps,     "pps gps 1|2 | pps clkb | pps auto"},
+    {"gtu",     cmdGtu,     "gtu internal <ns> | gtu external"},
+    {"clk40m",  cmdClk40m,  "clk40m internal|external"},
+    {"counter", cmdCounter, "counter l1 <n>|all [reset] | counter evt|gtu|all [reset]"},
+    {"ch",      cmdCh,      "ch enable|disable <n>|all | ch xgamma on|off <n>"},
+    {"status",  cmdStatus,  "status [raw]"},
+    {"fw",      cmdFw,      "fw sha"},
+    {"help",    cmdHelp,    "help"},
+    {"exit",    cmdExit,    "exit"},
 };
 
-static void help(axiRegisters_t *regDev, int connfd, cmd_t *c){
-    (void)c;
-    (void)regDev;
+static uint32_t cmdHelp(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    (void)regDev; (void)argc; (void)argv;
 
-    for(unsigned int i = 0; i < COUNT(commands); i++){
-        char cStr[CMD_MAX_LEN+DESC_MAX_LEN] = "";
+    reply[0] = '\0';
+    for(unsigned int i = 0; i < COUNT(families); i++)
+        appendLine(reply, "%s\n", families[i].usage);
 
-        snprintf(cStr, CMD_MAX_LEN+DESC_MAX_LEN, "%s:\n\t%s\n", commands[i].cmdStr, commands[i].cmdDesc);
-
-        printf("%s", cStr);
-
-        write(connfd, cStr, strlen(cStr));
-    }
+    return CMD_LOCAL;
 }
 
-static int compare(const void *p1, const void *p2){
-    return strcmp(*((const char **)p1), *((const char **)p2));
-}
+uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* cmdStr, int len){
+    char* argv[CMD_MAX_ARGS + 1] = {0};
+    int argc = 0;
+    char* save = NULL;
+    char reply[TCP_SND_BUF] = "";
+    uint32_t ret = CMD_ERROR;
 
-uint8_t sortCmd(void){
-    if (!sorted){
-        qsort(commands, COUNT(commands), sizeof(*commands), compare);
-        sorted = 1;
-    }
-
-    return sorted;
-}
-
-static cmd_t *getCmd(const char *name){
-    cmd_t *item = (cmd_t *)bsearch(&name, commands, COUNT(commands), sizeof(*commands), compare);
-
-    return item;
-}
-
-uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char *cmdStr, int len){
     if(len == 0)
-        return NONE;
+        return CMD_ERROR;
 
-    cmd_t *cmd = getCmd(cmdStr);
-
-    if (cmd != NULL){
-        cmd->funcPtr(regDev, connfd, cmd);
-        return cmd->cmdVal;
-    }else{
-        printf("%s", errStr);
-        write(connfd, errStr, strlen(errStr));
+    for(char* tok = strtok_r(cmdStr, " \t", &save); tok != NULL; tok = strtok_r(NULL, " \t", &save)){
+        if(argc > CMD_MAX_ARGS){   /* too many tokens: fall through to the error */
+            argc = 0;
+            break;
+        }
+        argv[argc++] = tok;
     }
 
-    return 0;
+    if(argc > 0){
+        for(unsigned int i = 0; i < COUNT(families); i++){
+            if(strcmp(argv[0], families[i].name) == 0){
+                ret = families[i].func(regDev, argc, argv, reply);
+                break;
+            }
+        }
+    }
+
+    if(ret == CMD_ERROR && reply[0] == '\0')
+        snprintf(reply, TCP_SND_BUF, "%s", errStr);
+
+    printf("%s", reply);
+    write(connfd, reply, strlen(reply));
+
+    return ret;
 }

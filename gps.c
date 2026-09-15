@@ -1,6 +1,19 @@
 #include "gps.h"
 
-const uint8_t gpsConfStr[] = {0x02, 0x28, 0x6D, 0x02, 0x00, 0x02, 0x99, 0x03};
+static uint8_t gpsConfStr[GPS_CONF_LEN] = {0x02, 0x28, 0x6D, 0x02, 0x00, 0x02, 0x99, 0x03};
+static pthread_mutex_t gpsConfMtx = PTHREAD_MUTEX_INITIALIZER;
+
+void gpsSetConf(const uint8_t conf[GPS_CONF_LEN]){
+    pthread_mutex_lock(&gpsConfMtx);
+    memcpy(gpsConfStr, conf, GPS_CONF_LEN);
+    pthread_mutex_unlock(&gpsConfMtx);
+}
+
+static void gpsGetConf(uint8_t conf[GPS_CONF_LEN]){
+    pthread_mutex_lock(&gpsConfMtx);
+    memcpy(conf, gpsConfStr, GPS_CONF_LEN);
+    pthread_mutex_unlock(&gpsConfMtx);
+}
 
 void* gpsCfgIrqThread(void* arg){
     gpsCfgIrqArgs_t* cfgIrqArg = (gpsCfgIrqArgs_t*)arg;
@@ -132,9 +145,12 @@ void* gpsCtrlThread(void* arg){
             uint64_t ev = 0;
 
             if(read(gpsArg->cfgIrq, &ev, sizeof(ev)) == (ssize_t)sizeof(ev)){
-                ssize_t n = write(fd, gpsConfStr, sizeof(gpsConfStr));
+                uint8_t conf[GPS_CONF_LEN];
 
-                if(n != (ssize_t)sizeof(gpsConfStr))
+                gpsGetConf(conf);
+                ssize_t n = write(fd, conf, GPS_CONF_LEN);
+
+                if(n != (ssize_t)GPS_CONF_LEN)
                     fprintf(stderr,"Error: GPS%d configuration not written!\n", idx);
             }
         }

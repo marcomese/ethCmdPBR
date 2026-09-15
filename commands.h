@@ -16,110 +16,50 @@
 #include <sys/types.h>
 #include "registers.h"
 
-#define NONE              0x00000000
-#define START_RUN         0xFFFFFFFF
-#define STOP_RUN          0xAAAAAAAA
-#define RELEASE_BUSY      0x55555555
-#define SET_BUSY          0xCCCCCCCC
-#define TRIGGER           0x33333333
-#define CONFIGURE_GPS     0x99999999
-#define GPS1_ON           0xF0F0F0F0
-#define GPS2_ON           0x0F0F0F0F
-#define CLKPPS_ON         0x33CCCC33
-#define GPS1_NO           0xC33CC33C
-#define GPS2_NO           0x3CC33CC3
-#define CLKPPS_NO         0x3333CCCC
-#define RESET_GTU_COUNT   0x5A5A5A5A
-#define RESET_L1_COUNT    0xA5A5A5A5
-#define RESET_EVT_COUNT   0x3C3C3C3C
-#define RESET_ALL_COUNT   0xC3C3C3C3
-#define PPS_TRG_ON        0x96969696
-#define PPS_TRG_OFF       0x69696969
-#define MASK_EXT_TRG0     0xFF00FF00
-#define UNMASK_EXT_TRG0   0x00FF00FF
-#define MASK_EXT_TRG1     0xFF0000FF
-#define UNMASK_EXT_TRG1   0x00FFFF00
-#define NO_ZYNQ0          0x33CC33CC
-#define NO_ZYNQ1          0xCC33CC33
-#define NO_ZYNQ2          0x99669966
-#define NO_ZYNQ3          0x66996699
-#define ZYNQ0_ON          0x0FF00FF0
-#define ZYNQ1_ON          0xF00FF00F
-#define ZYNQ2_ON          0xA55AA55A
-#define ZYNQ3_ON          0x5AA55AA5
-#define GPS_AUTO_ON       0x69966996
-#define GPS_AUTO_NO       0x96699669
-#define GTU_INT_ON        0xFFFF0000
-#define GTU_INT_NO        0x0000FFFF
-#define CLK40_INT_ON      0xAAAA5555
-#define CLK40_INT_NO      0x5555AAAA
-#define READ_FWSHA        0x0000000F
-#define READ_CLK40COUNTER 0x0000000E
-#define READ_L16COUNTER   0x0000000D
-#define READ_L15COUNTER   0x0000000C
-#define READ_L14COUNTER   0x0000000B
-#define READ_GTUCOUNTER   0x00000009
-#define READ_PPSCOUNTER   0x00000008
-#define READ_EVTCOUNTER   0x00000007
-#define READ_L10COUNTER   0x00000006
-#define READ_L11COUNTER   0x00000005
-#define READ_L12COUNTER   0x00000004
-#define READ_L13COUNTER   0x00000003
-#define READ_STATUS       0x00000002
-#define HELP              0x00000001
-#define EXIT              0x0000000A
+/* PL command word, written in one shot to CMD_RECV_ADDR:
+ *   bit 31..24 CMD (family), 23..16 ARG0 (action), 15..8 ARG1, 7..0 ARG2
+ * Codes come from the [8,4,4] extended Hamming set (min distance 4), 0 is
+ * reserved and decoded as NACK. Must match command_decoder.vhd. */
+#define CMD_RUN     0x0FU
+#define CMD_BSY     0x33U
+#define CMD_TRG     0x55U
+#define CMD_GPS     0x66U
+#define CMD_PPS     0x99U
+#define CMD_GTU     0xAAU
+#define CMD_40M     0xCCU
+#define CMD_CNT     0xF0U
+#define CMD_CHN     0x3CU
 
-// Local command ids (HELP, EXIT, READ_*) are never written to the PL command
-// register: they live in the reserved window [1, LOCAL_CMD_MAX]. Every opcode
-// sent to the PL must stay outside that window, otherwise decodeCmdStr() can
-// return a value that tcpserver.c mistakes for EXIT.
-#define LOCAL_CMD_MAX     0x000000FF
+#define ARG_ON      0x0FU   /* start, set, enable, on, internal, soft, configure, pps gps, counter l1, gps 1 */
+#define ARG_OFF     0xF0U   /* stop, release, disable, off, external, pps clkb, counter evt, gps 2 */
+#define ARG_PPS     0x33U   /* trg pps, pps auto, counter gtu, ch xgamma */
+#define ARG_NORMAL  0xCCU   /* trg normal, counter all */
+#define ARG_CLKB    0x55U   /* trg clkb */
+#define ARG_SELF    0xAAU   /* trg self */
+#define ARG_ALL     0xFFU   /* channel "all" */
 
-#define PL_OPCODE_CHECK(x) \
-    _Static_assert((x) > LOCAL_CMD_MAX, #x " collides with the local command id window")
+#define PL_CMD(c, a0, a1, a2) \
+    (((uint32_t)(c) << 24) | ((uint32_t)(a0) << 16) | ((uint32_t)(a1) << 8) | (uint32_t)(a2))
 
-PL_OPCODE_CHECK(START_RUN);
-PL_OPCODE_CHECK(STOP_RUN);
-PL_OPCODE_CHECK(RELEASE_BUSY);
-PL_OPCODE_CHECK(SET_BUSY);
-PL_OPCODE_CHECK(TRIGGER);
-PL_OPCODE_CHECK(CONFIGURE_GPS);
-PL_OPCODE_CHECK(GPS1_ON);
-PL_OPCODE_CHECK(GPS2_ON);
-PL_OPCODE_CHECK(CLKPPS_ON);
-PL_OPCODE_CHECK(GPS1_NO);
-PL_OPCODE_CHECK(GPS2_NO);
-PL_OPCODE_CHECK(CLKPPS_NO);
-PL_OPCODE_CHECK(RESET_GTU_COUNT);
-PL_OPCODE_CHECK(RESET_L1_COUNT);
-PL_OPCODE_CHECK(RESET_EVT_COUNT);
-PL_OPCODE_CHECK(RESET_ALL_COUNT);
-PL_OPCODE_CHECK(PPS_TRG_ON);
-PL_OPCODE_CHECK(PPS_TRG_OFF);
-PL_OPCODE_CHECK(MASK_EXT_TRG0);
-PL_OPCODE_CHECK(UNMASK_EXT_TRG0);
-PL_OPCODE_CHECK(MASK_EXT_TRG1);
-PL_OPCODE_CHECK(UNMASK_EXT_TRG1);
-PL_OPCODE_CHECK(NO_ZYNQ0);
-PL_OPCODE_CHECK(NO_ZYNQ1);
-PL_OPCODE_CHECK(NO_ZYNQ2);
-PL_OPCODE_CHECK(NO_ZYNQ3);
-PL_OPCODE_CHECK(ZYNQ0_ON);
-PL_OPCODE_CHECK(ZYNQ1_ON);
-PL_OPCODE_CHECK(ZYNQ2_ON);
-PL_OPCODE_CHECK(ZYNQ3_ON);
-PL_OPCODE_CHECK(GPS_AUTO_ON);
-PL_OPCODE_CHECK(GPS_AUTO_NO);
-PL_OPCODE_CHECK(GTU_INT_ON);
-PL_OPCODE_CHECK(GTU_INT_NO);
-PL_OPCODE_CHECK(CLK40_INT_ON);
-PL_OPCODE_CHECK(CLK40_INT_NO);
+/* PL fabric clock (FCLK_CLK0): every ns -> cycles conversion and the self
+ * trigger scale steps assume it, see selfTrigger.vhd */
+#define PL_CLK_HZ            100000000UL
+#define PL_CLK_NS            10UL
 
-_Static_assert(EXIT <= LOCAL_CMD_MAX, "EXIT outside the local command id window");
-_Static_assert(HELP <= LOCAL_CMD_MAX, "HELP outside the local command id window");
-_Static_assert(READ_STATUS <= LOCAL_CMD_MAX, "READ_STATUS outside the local command id window");
-_Static_assert(READ_GTUCOUNTER <= LOCAL_CMD_MAX, "READ_GTUCOUNTER outside the local command id window");
-_Static_assert(READ_FWSHA <= LOCAL_CMD_MAX, "READ_FWSHA outside the local command id window");
+/* gtu internal <ns>: ARG1:ARG2 = period in clk cycles */
+#define GTU_PERIOD_MIN_CYC   2UL
+#define GTU_PERIOD_MAX_CYC   65535UL
+
+/* trg self <ns>: ARG1:ARG2 = scale (bit 15..13) and count (bit 12..0) */
+#define SELF_SCALE_NUM       6
+#define SELF_COUNT_MAX       8191UL
+#define SELF_SCALE_POS       13
+
+/* return codes of decodeCmdStr(): a PL command word (never < 0x0F000000),
+ * or one of these local ids */
+#define CMD_ERROR            0x00000000U
+#define CMD_LOCAL            0x00000001U
+#define EXIT                 0x0000000AU
 
 /* must match the generics of command_decoder in the block design */
 #define EXTTRG_NUM           2
@@ -128,30 +68,15 @@ _Static_assert(READ_FWSHA <= LOCAL_CMD_MAX, "READ_FWSHA outside the local comman
 
 #define PPS_NUM              3
 
-#define CMD_MAX_LEN          15
+#define CMD_MAX_LEN          64   /* longest line: "gps configure 0x02286D02 0x00029903" */
 
-#define DESC_MAX_LEN         50
+#define CMD_MAX_ARGS         4
 
 #define STATUS_ID_MAX_LEN    128
 
 #define STATUS_ID_STR_MAXLEN 16
 
 #define TCP_SND_BUF          2048
-
-struct cmd;
-typedef void (*funcPtr_t)(axiRegisters_t* regDev, int connfd, struct cmd* cmd);
-
-typedef struct cmd{
-    const char* cmdStr;
-    uint32_t    cmdVal;
-    const char* feedbackStr;
-    funcPtr_t   funcPtr;
-    uint32_t    baseAddr;
-    uint32_t    regAddr;
-    const char* cmdDesc;
-} cmd_t;
-
-uint8_t sortCmd(void);
 
 uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* ethStr, int nBytes);
 
