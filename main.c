@@ -70,8 +70,8 @@ int main(){
     axiRegs.ctrlReg      = mapUio("AXIRegister@43c00000",  "commands register");
     axiRegs.cntReg       = mapUio("AXIStatusReg@43c10000", "evt, pps, gtu and clk40 counters");
     axiRegs.l1Cnt03Reg   = mapUio("AXIStatusReg@43c20000", "L1 counters 0..3");
-    axiRegs.aliveDeadReg = mapUio("AXIStatusReg@43c30000", "alive/dead time and fifo count");
-    axiRegs.l1Cnt47Reg   = mapUio("AXIStatusReg@43c40000", "L1 counters 4..6");
+    axiRegs.aliveDeadReg = mapUio("AXIStatusReg@43c30000", "alive/dead time, master/slave and fifo count");
+    axiRegs.l1Cnt46Reg   = mapUio("AXIStatusReg@43c40000", "L1 counters 4..6, gtu/self trigger periods");
     axiRegs.statusReg    = mapUio("AXIStatusReg@43c50000", "status, trg flags and fw sha");
     axiRegs.dmaReg       = mapUio("dma@40400000",          "DMA");
     fifoData             = mapUio("dma_buffer",            "DMA pool");

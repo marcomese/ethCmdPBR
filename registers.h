@@ -14,8 +14,8 @@
 #define CTRL_REG_ADDR       0x43C00000  // AXIRegister:  command and arguments
 #define CNT_REG_ADDR        0x43C10000  // AXIStatusReg: evt, pps, gtu, clk40 counters
 #define L1CNT_03_REG_ADDR   0x43C20000  // AXIStatusReg: L1 counters 0..3
-#define ALIVEDEAD_REG_ADDR  0x43C30000  // AXIStatusReg: alive/dead time, fifo count
-#define L1CNT_47_REG_ADDR   0x43C40000  // AXIStatusReg: L1 counters 4..6
+#define ALIVEDEAD_REG_ADDR  0x43C30000  // AXIStatusReg: alive/dead time, master/slave, fifo count
+#define L1CNT_46_REG_ADDR   0x43C40000  // AXIStatusReg: L1 counters 4..6, gtu/self trigger periods
 #define STATUS_REG_ADDR     0x43C50000  // AXIStatusReg: status (64 bit), trg flags, fw sha
 #define DMA_REG_ADDR        0x40400000
 
@@ -41,12 +41,25 @@
 //  ALIVEDEAD_REG registers
 #define ALIVE_COUNTER_ADDR  0x43C30000
 #define DEAD_COUNTER_ADDR   0x43C30004
+#define MASTERSLAVE_ADDR    0x43C30008  // "MSTR" or "SLV " (ASCII, MSB first) from command_decoder.vhd
 #define FIFO_COUNTER_ADDR   0x43C3000C
 
-//  L1CNT_47_REG registers
+#define MASTERSLAVE_MSTR    0x4D535452U
+#define MASTERSLAVE_SLV     0x534C5620U
+
+//  L1CNT_46_REG registers
 #define L1_4_COUNTER_ADDR   0x43C40000
 #define L1_5_COUNTER_ADDR   0x43C40004
 #define L1_6_COUNTER_ADDR   0x43C40008
+#define PERIODS_ADDR        0x43C4000C  // xlconcat: gtuPeriod | selfTrgScale | selfTrgPeriod
+
+// PERIODS register layout (LSB first in the concat)
+#define PRD_GTU_POS         0U          // gtu period in clk cycles, 16 bit
+#define PRD_GTU_MASK        0xFFFFU
+#define PRD_SELF_SCALE_POS  16U         // self trigger scale, 3 bit
+#define PRD_SELF_SCALE_MASK 0x7U
+#define PRD_SELF_COUNT_POS  19U         // self trigger count, 13 bit (0 = self trigger off)
+#define PRD_SELF_COUNT_MASK 0x1FFFU
 
 //  STATUS_REG registers
 #define STATUS_LO_ADDR      0x43C50000  // status_register(31 downto 0)
@@ -66,7 +79,7 @@ typedef struct axiRegisters{
     volatile uint32_t* cntReg;
     volatile uint32_t* l1Cnt03Reg;
     volatile uint32_t* aliveDeadReg;
-    volatile uint32_t* l1Cnt47Reg;
+    volatile uint32_t* l1Cnt46Reg;
     volatile uint32_t* statusReg;
     volatile uint32_t* dmaReg;
 } axiRegisters_t;

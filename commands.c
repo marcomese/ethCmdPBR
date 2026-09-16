@@ -79,12 +79,52 @@ static void appendField(char* dst, const char* label, uint64_t reg, uint8_t base
     }
 }
 
-static void decodeStatusReg(uint64_t statusReg, char* statusStr){
+/* xGammaChannel is one hot: "OFF", "CH<nn>", or the raw field if more than one bit is set */
+static void appendXGamma(char* dst, uint64_t reg){
+    char tempStr[STATUS_ID_MAX_LEN] = "";
+    unsigned int field = (unsigned int)((reg >> XGAMMA_POS) & ((1U << ZYNQ_NUM) - 1U));
+
+    if(field == 0)
+        snprintf(tempStr, STATUS_ID_MAX_LEN, "XGAMMA=OFF ");
+    else if((field & (field - 1U)) == 0)
+        snprintf(tempStr, STATUS_ID_MAX_LEN, "XGAMMA=CH%02d ", __builtin_ctz(field));
+    else
+        snprintf(tempStr, STATUS_ID_MAX_LEN, "XGAMMA=0x%02X ", field);
+
+    strncat(dst, tempStr, STATUS_ID_MAX_LEN);
+}
+
+/* MASTERSLAVE register: "MSTR" / "SLV " written by command_decoder.vhd */
+static const char* modeStr(uint32_t masterSlave){
+    if(masterSlave == MASTERSLAVE_MSTR)
+        return "MASTER";
+    if(masterSlave == MASTERSLAVE_SLV)
+        return "SLAVE";
+    return "UNKNOWN";
+}
+
+/* PERIODS register -> gtu period and self trigger period in ns (0 = off) */
+static void decodePeriods(uint32_t periods, unsigned long long* gtuNs, unsigned long long* selfNs){
+    unsigned int gtuCyc = (periods >> PRD_GTU_POS) & PRD_GTU_MASK;
+    unsigned int scale  = (periods >> PRD_SELF_SCALE_POS) & PRD_SELF_SCALE_MASK;
+    unsigned int count  = (periods >> PRD_SELF_COUNT_POS) & PRD_SELF_COUNT_MASK;
+    unsigned long long unit = PL_CLK_NS;
+
+    for(unsigned int k = 0; k < scale; k++)
+        unit *= 10;
+
+    *gtuNs  = (unsigned long long)gtuCyc * PL_CLK_NS;
+    *selfNs = (unsigned long long)count * unit;
+}
+
+static void decodeStatusReg(uint64_t statusReg, uint32_t masterSlave, uint32_t periods, char* statusStr){
     uint8_t runCtrlState = 0;
+    unsigned long long gtuNs = 0, selfNs = 0;
     char resStr[TCP_SND_BUF] = "";
     char tempStr[STATUS_ID_MAX_LEN] = "";
 
     runCtrlState = (uint8_t)((statusReg & RUN_CTRL_MASK) >> RUN_CTRL_POS);
+    decodePeriods(periods, &gtuNs, &selfNs);
 
     appendBit(resStr, "RUN",        statusReg, RUN_POS);
     appendBit(resStr, "BUSY",       statusReg, RUNCTRLBUSY_POS);
@@ -97,13 +137,22 @@ static void decodeStatusReg(uint64_t statusReg, char* statusStr){
     appendBit(resStr, "GTUINT",     statusReg, GTUSEL_POS);
     appendBit(resStr, "CLK40INT",   statusReg, CLK40SEL_POS);
 
-    appendField(resStr, "XGAMMA",  statusReg, XGAMMA_POS,      ZYNQ_NUM);
+    appendXGamma(resStr, statusReg);
     appendField(resStr, "TOUTFLG", statusReg, TIMEOUTFLAG_POS, ZYNQ_NUM);
     appendField(resStr, "EXTTRG",  statusReg, EXTTRG_POS,      EXTTRG_NUM);
     appendField(resStr, "PPSEN",   statusReg, PPSEN_POS,       PPS_NUM);
     appendField(resStr, "PPSPRES", statusReg, PPSPRES_POS,     PPS_NUM);
     appendField(resStr, "ZQ",      statusReg, ZQEN_POS,        ZYNQ_NUM);
     appendField(resStr, "ZQBUSY",  statusReg, ZQBUSY_POS,      ZYNQ_NUM);
+
+    snprintf(tempStr, STATUS_ID_MAX_LEN, "MODE=%s GTUPERIOD=%lluns ", modeStr(masterSlave), gtuNs);
+    strncat(resStr, tempStr, STATUS_ID_MAX_LEN);
+
+    if(selfNs == 0)
+        snprintf(tempStr, STATUS_ID_MAX_LEN, "SELFTRG=OFF ");
+    else
+        snprintf(tempStr, STATUS_ID_MAX_LEN, "SELFTRG=%lluns ", selfNs);
+    strncat(resStr, tempStr, STATUS_ID_MAX_LEN);
 
     snprintf(tempStr, STATUS_ID_MAX_LEN, "RUNCTRL=%s\n", runCtrlDecode[runCtrlState]);
 
@@ -213,7 +262,7 @@ static uint32_t readL1(axiRegisters_t* regDev, int ch){
     if(ch < 4)
         return readPl(regDev, L1CNT_03_REG_ADDR, L1_0_COUNTER_ADDR + 4U * (uint32_t)ch);
 
-    return readPl(regDev, L1CNT_47_REG_ADDR, L1_4_COUNTER_ADDR + 4U * (uint32_t)(ch - 4));
+    return readPl(regDev, L1CNT_46_REG_ADDR, L1_4_COUNTER_ADDR + 4U * (uint32_t)(ch - 4));
 }
 
 static void appendLine(char* reply, const char* fmt, ...){
@@ -252,15 +301,31 @@ static uint32_t cmdBusy(axiRegisters_t* regDev, int argc, char** argv, char* rep
     return usage("busy set|release", reply);
 }
 
+/* PERIODS register read, ns */
+static void readPeriods(axiRegisters_t* regDev, unsigned long long* gtuNs, unsigned long long* selfNs){
+    decodePeriods(readPl(regDev, L1CNT_46_REG_ADDR, PERIODS_ADDR), gtuNs, selfNs);
+}
+
 static uint32_t cmdTrg(axiRegisters_t* regDev, int argc, char** argv, char* reply){
-    const char* use = "trg soft | trg external|pps|clkb enable|disable | trg normal | trg self <ns>|0";
+    const char* use = "trg soft | trg external|pps|clkb enable|disable | trg normal | trg self <ns>|0|period";
     uint8_t onOff = 0;
-    unsigned long long ns = 0;
+    unsigned long long ns = 0, gtuNs = 0, selfNs = 0;
     uint16_t field = 0;
     char echo[STATUS_ID_MAX_LEN] = "";
 
     if(argc == 2 && strcmp(argv[1], "soft") == 0)
         return sendPl(regDev, PL_CMD(CMD_TRG, ARG_ON, 0, 0), "TRG SOFT", reply);
+
+    if(argc == 3 && strcmp(argv[1], "self") == 0 && strcmp(argv[2], "period") == 0){
+        readPeriods(regDev, &gtuNs, &selfNs);
+
+        if(selfNs == 0)
+            snprintf(reply, TCP_SND_BUF, "TRG SELF PERIOD=OFF\n");
+        else
+            snprintf(reply, TCP_SND_BUF, "TRG SELF PERIOD=%lluns\n", selfNs);
+
+        return CMD_LOCAL;
+    }
 
     if(argc == 2 && strcmp(argv[1], "normal") == 0)
         return sendPl(regDev, PL_CMD(CMD_TRG, ARG_NORMAL, 0, 0), "TRG NORMAL", reply);
@@ -350,7 +415,25 @@ static uint32_t cmdGtu(axiRegisters_t* regDev, int argc, char** argv, char* repl
     if(argc == 2 && strcmp(argv[1], "external") == 0)
         return sendPl(regDev, PL_CMD(CMD_GTU, ARG_OFF, 0, 0), "GTU EXTERNAL", reply);
 
-    return usage("gtu internal <ns> | gtu external", reply);
+    if(argc == 2 && strcmp(argv[1], "period") == 0){
+        unsigned long long gtuNs = 0, selfNs = 0;
+
+        readPeriods(regDev, &gtuNs, &selfNs);
+        snprintf(reply, TCP_SND_BUF, "GTU PERIOD=%lluns\n", gtuNs);
+        return CMD_LOCAL;
+    }
+
+    return usage("gtu internal <ns> | gtu external | gtu period", reply);
+}
+
+static uint32_t cmdMode(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    (void)argv;
+
+    if(argc != 1)
+        return usage("mode", reply);
+
+    snprintf(reply, TCP_SND_BUF, "MODE=%s\n", modeStr(readPl(regDev, ALIVEDEAD_REG_ADDR, MASTERSLAVE_ADDR)));
+    return CMD_LOCAL;
 }
 
 static uint32_t cmdClk40m(axiRegisters_t* regDev, int argc, char** argv, char* reply){
@@ -456,13 +539,16 @@ static uint32_t cmdStatus(axiRegisters_t* regDev, int argc, char** argv, char* r
     /* the two halves are read back to back, not atomically: fine for monitoring */
     uint64_t status = readPl(regDev, STATUS_REG_ADDR, STATUS_LO_ADDR);
     status |= (uint64_t)readPl(regDev, STATUS_REG_ADDR, STATUS_HI_ADDR) << 32;
+    uint32_t masterSlave = readPl(regDev, ALIVEDEAD_REG_ADDR, MASTERSLAVE_ADDR);
+    uint32_t periods     = readPl(regDev, L1CNT_46_REG_ADDR, PERIODS_ADDR);
 
     if(argc == 1){
-        decodeStatusReg(status, reply);
+        decodeStatusReg(status, masterSlave, periods, reply);
         return CMD_LOCAL;
     }
     if(argc == 2 && strcmp(argv[1], "raw") == 0){
-        snprintf(reply, TCP_SND_BUF, "STATUS=0x%016" PRIX64 "\n", status);
+        snprintf(reply, TCP_SND_BUF, "STATUS=0x%016" PRIX64 " MASTERSLAVE=0x%08" PRIX32 " PERIODS=0x%08" PRIX32 "\n",
+                 status, masterSlave, periods);
         return CMD_LOCAL;
     }
 
@@ -501,13 +587,14 @@ typedef struct{
 static const family_t families[] = {
     {"run",     cmdRun,     "run start|stop"},
     {"busy",    cmdBusy,    "busy set|release"},
-    {"trg",     cmdTrg,     "trg soft | trg external|pps|clkb enable|disable | trg normal | trg self <ns>|0"},
+    {"trg",     cmdTrg,     "trg soft | trg external|pps|clkb enable|disable | trg normal | trg self <ns>|0|period"},
     {"gps",     cmdGps,     "gps configure <word hi> <word lo>"},
     {"pps",     cmdPps,     "pps gps 1|2 | pps clkb | pps auto"},
-    {"gtu",     cmdGtu,     "gtu internal <ns> | gtu external"},
+    {"gtu",     cmdGtu,     "gtu internal <ns> | gtu external | gtu period"},
     {"clk40m",  cmdClk40m,  "clk40m internal|external"},
     {"counter", cmdCounter, "counter l1 <n>|all [reset] | counter evt|gtu|all [reset]"},
     {"ch",      cmdCh,      "ch enable|disable <n>|all | ch xgamma on|off <n>"},
+    {"mode",    cmdMode,    "mode"},
     {"status",  cmdStatus,  "status [raw]"},
     {"fw",      cmdFw,      "fw sha"},
     {"help",    cmdHelp,    "help"},

@@ -62,7 +62,7 @@ volatile uint32_t* regionOf(axiRegisters_t* regDev, uint32_t baseAddr){
         case CNT_REG_ADDR:       return regDev->cntReg;
         case L1CNT_03_REG_ADDR:  return regDev->l1Cnt03Reg;
         case ALIVEDEAD_REG_ADDR: return regDev->aliveDeadReg;
-        case L1CNT_47_REG_ADDR:  return regDev->l1Cnt47Reg;
+        case L1CNT_46_REG_ADDR:  return regDev->l1Cnt46Reg;
         case STATUS_REG_ADDR:    return regDev->statusReg;
         case DMA_REG_ADDR:       return regDev->dmaReg;
         default:                 return NULL;
