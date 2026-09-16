@@ -278,6 +278,9 @@ static void appendLine(char* reply, const char* fmt, ...){
 
 typedef uint32_t (*cmdFunc_t)(axiRegisters_t* regDev, int argc, char** argv, char* reply);
 
+/* a command that answers with raw bytes instead of text sets this to the reply length */
+static size_t binReplyLen = 0;
+
 static uint32_t usage(const char* text, char* reply){
     snprintf(reply, TCP_SND_BUF, "Error: usage: %s\n", text);
     return CMD_ERROR;
@@ -547,8 +550,10 @@ static uint32_t cmdStatus(axiRegisters_t* regDev, int argc, char** argv, char* r
         return CMD_LOCAL;
     }
     if(argc == 2 && strcmp(argv[1], "raw") == 0){
-        snprintf(reply, TCP_SND_BUF, "STATUS=0x%016" PRIX64 " MASTERSLAVE=0x%08" PRIX32 " PERIODS=0x%08" PRIX32 "\n",
-                 status, masterSlave, periods);
+        /* binary reply: the 64 bit status register as it is in memory (little endian,
+         * same byte order as statusLo/statusHi in the data record), no text */
+        memcpy(reply, &status, sizeof(status));
+        binReplyLen = sizeof(status);
         return CMD_LOCAL;
     }
 
@@ -621,6 +626,8 @@ uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* cmdStr, int len)
     if(len == 0)
         return CMD_ERROR;
 
+    binReplyLen = 0;
+
     for(char* tok = strtok_r(cmdStr, " \t", &save); tok != NULL; tok = strtok_r(NULL, " \t", &save)){
         if(argc > CMD_MAX_ARGS){   /* too many tokens: fall through to the error */
             argc = 0;
@@ -641,8 +648,16 @@ uint32_t decodeCmdStr(axiRegisters_t* regDev, int connfd, char* cmdStr, int len)
     if(ret == CMD_ERROR && reply[0] == '\0')
         snprintf(reply, TCP_SND_BUF, "%s", errStr);
 
-    printf("%s", reply);
-    write(connfd, reply, strlen(reply));
+    if(binReplyLen > 0){
+        printf("BIN REPLY:");
+        for(size_t i = 0; i < binReplyLen; i++)
+            printf(" %02X", (unsigned char)reply[i]);
+        printf("\n");
+        write(connfd, reply, binReplyLen);
+    }else{
+        printf("%s", reply);
+        write(connfd, reply, strlen(reply));
+    }
 
     return ret;
 }
