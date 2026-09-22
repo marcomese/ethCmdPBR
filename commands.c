@@ -250,7 +250,7 @@ static int encodeSelfPeriod(unsigned long long ns, uint16_t* field, char* reply)
 
 static uint32_t sendPl(axiRegisters_t* regDev, uint32_t word, const char* echo, char* reply){
     writeReg(regDev->ctrlReg, CTRL_REG_ADDR, CMD_RECV_ADDR, word);
-    snprintf(reply, TCP_SND_BUF, "%s (0x%08" PRIX32 ")\n", echo, word);
+    snprintf(reply, TCP_SND_BUF, "%s\n", echo);
     return word;
 }
 
