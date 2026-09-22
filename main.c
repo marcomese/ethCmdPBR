@@ -73,6 +73,9 @@ int main(){
     axiRegs.aliveDeadReg = mapUio("AXIStatusReg@43c30000", "alive/dead time, master/slave and fifo count");
     axiRegs.l1Cnt46Reg   = mapUio("AXIStatusReg@43c40000", "L1 counters 4..6, gtu/self trigger periods");
     axiRegs.statusReg    = mapUio("AXIStatusReg@43c50000", "status, trg flags and fw sha");
+    axiRegs.rateClkTrgReg = mapUio("AXIStatusReg@43c60000", "rates of ext clkb trg, trigger out, gtu, clk40");
+    axiRegs.rateL103Reg  = mapUio("AXIStatusReg@43c70000", "rates of L1 0..3");
+    axiRegs.rateL146Reg  = mapUio("AXIStatusReg@43c80000", "rates of L1 4..6 and ext jtrg trg");
     axiRegs.dmaReg       = mapUio("dma@40400000",          "DMA");
     fifoData             = mapUio("dma_buffer",            "DMA pool");
 

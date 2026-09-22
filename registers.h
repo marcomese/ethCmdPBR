@@ -17,6 +17,9 @@
 #define ALIVEDEAD_REG_ADDR  0x43C30000  // AXIStatusReg: alive/dead time, master/slave, fifo count
 #define L1CNT_46_REG_ADDR   0x43C40000  // AXIStatusReg: L1 counters 4..6, gtu/self trigger periods
 #define STATUS_REG_ADDR     0x43C50000  // AXIStatusReg: status (64 bit), trg flags, fw sha
+#define RATE_CLKTRG_REG_ADDR 0x43C60000 // AXIStatusReg: rates of ext clkb trg, trigger out, gtu, clk40
+#define RATE_L103_REG_ADDR  0x43C70000  // AXIStatusReg: rates of L1 0..3
+#define RATE_L146_REG_ADDR  0x43C80000  // AXIStatusReg: rates of L1 4..6, ext jtrg trg
 #define DMA_REG_ADDR        0x40400000
 
 // Registers addresses
@@ -70,6 +73,20 @@
 // USR_ACCESS holds the 7 hex digit abbreviated SHA, zero extended to 32 bit
 #define FW_SHA_MASK         0x0FFFFFFFU
 
+//  RATE registers: edges counted in the last second by rateMeters (1 s gate on the 100 MHz clock)
+#define RATE_EXTCLKB_ADDR   0x43C60000  // trigger from the other clock board (connector 7)
+#define RATE_TRGOUT_ADDR    0x43C60004  // triggers accepted by the run control FSM
+#define RATE_GTU_ADDR       0x43C60008  // selected GTU (internal or external)
+#define RATE_CLK40_ADDR     0x43C6000C  // selected clk40M (internal or external), nominal 40000000
+#define RATE_L1_0_ADDR      0x43C70000
+#define RATE_L1_1_ADDR      0x43C70004
+#define RATE_L1_2_ADDR      0x43C70008
+#define RATE_L1_3_ADDR      0x43C7000C
+#define RATE_L1_4_ADDR      0x43C80000
+#define RATE_L1_5_ADDR      0x43C80004
+#define RATE_L1_6_ADDR      0x43C80008
+#define RATE_EXTJTRG_ADDR   0x43C8000C  // trigger from the JTRG connector
+
 uint32_t readReg(volatile uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr);
 void writeReg(volatile uint32_t* devAddr, uint32_t baseAddr, uint32_t regAddr, uint32_t data);
 int openUioByName(const char *name);
@@ -81,6 +98,9 @@ typedef struct axiRegisters{
     volatile uint32_t* aliveDeadReg;
     volatile uint32_t* l1Cnt46Reg;
     volatile uint32_t* statusReg;
+    volatile uint32_t* rateClkTrgReg;
+    volatile uint32_t* rateL103Reg;
+    volatile uint32_t* rateL146Reg;
     volatile uint32_t* dmaReg;
 } axiRegisters_t;
 

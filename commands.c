@@ -429,6 +429,70 @@ static uint32_t cmdGtu(axiRegisters_t* regDev, int argc, char** argv, char* repl
     return usage("gtu internal <ns> | gtu external | gtu period", reply);
 }
 
+static uint32_t readRateL1(axiRegisters_t* regDev, int ch){
+    if(ch < 4)
+        return readPl(regDev, RATE_L103_REG_ADDR, RATE_L1_0_ADDR + 4U * (uint32_t)ch);
+
+    return readPl(regDev, RATE_L146_REG_ADDR, RATE_L1_4_ADDR + 4U * (uint32_t)(ch - 4));
+}
+
+/* rate [all] | rate l1 <n>|all | rate trg ext|clkb|out | rate gtu | rate clk40m
+ * every value is the number of edges seen in the last 1 s gate (Hz) */
+static uint32_t cmdRate(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    const char* use = "rate [all] | rate l1 <n>|all | rate trg ext|clkb|out | rate gtu | rate clk40m";
+    int all = (argc == 1 || (argc == 2 && strcmp(argv[1], "all") == 0));
+
+    reply[0] = '\0';
+
+    if(all || (argc == 3 && strcmp(argv[1], "l1") == 0)){
+        int idx = -1;
+        uint8_t code = 0;
+
+        if(!all && parseChannel(argv[2], &code, &idx) != 0)
+            return usage(use, reply);
+
+        if(idx >= 0){
+            appendLine(reply, "L1_%d RATE=%" PRIu32 "\n", idx, readRateL1(regDev, idx));
+            return CMD_LOCAL;
+        }
+        for(int ch = 0; ch < ZYNQ_NUM; ch++)
+            appendLine(reply, "L1_%d RATE=%" PRIu32 "\n", ch, readRateL1(regDev, ch));
+        if(!all)
+            return CMD_LOCAL;
+    }
+
+    if(all || (argc == 3 && strcmp(argv[1], "trg") == 0)){
+        int ext  = all || strcmp(argv[2], "ext")  == 0;
+        int clkb = all || strcmp(argv[2], "clkb") == 0;
+        int out  = all || strcmp(argv[2], "out")  == 0;
+
+        if(!ext && !clkb && !out)
+            return usage(use, reply);
+
+        if(ext)
+            appendLine(reply, "TRG EXT RATE=%" PRIu32 "\n",  readPl(regDev, RATE_L146_REG_ADDR,   RATE_EXTJTRG_ADDR));
+        if(clkb)
+            appendLine(reply, "TRG CLKB RATE=%" PRIu32 "\n", readPl(regDev, RATE_CLKTRG_REG_ADDR, RATE_EXTCLKB_ADDR));
+        if(out)
+            appendLine(reply, "TRG OUT RATE=%" PRIu32 "\n",  readPl(regDev, RATE_CLKTRG_REG_ADDR, RATE_TRGOUT_ADDR));
+        if(!all)
+            return CMD_LOCAL;
+    }
+
+    if(all || (argc == 2 && strcmp(argv[1], "gtu") == 0)){
+        appendLine(reply, "GTU RATE=%" PRIu32 "\n", readPl(regDev, RATE_CLKTRG_REG_ADDR, RATE_GTU_ADDR));
+        if(!all)
+            return CMD_LOCAL;
+    }
+
+    if(all || (argc == 2 && strcmp(argv[1], "clk40m") == 0)){
+        appendLine(reply, "CLK40M RATE=%" PRIu32 "\n", readPl(regDev, RATE_CLKTRG_REG_ADDR, RATE_CLK40_ADDR));
+        return CMD_LOCAL;
+    }
+
+    return usage(use, reply);
+}
+
 static uint32_t cmdMode(axiRegisters_t* regDev, int argc, char** argv, char* reply){
     (void)argv;
 
@@ -599,6 +663,7 @@ static const family_t families[] = {
     {"clk40m",  cmdClk40m,  "clk40m internal|external"},
     {"counter", cmdCounter, "counter l1 <n>|all [reset] | counter evt|gtu|all [reset]"},
     {"ch",      cmdCh,      "ch enable|disable <n>|all | ch xgamma on|off <n>"},
+    {"rate",    cmdRate,    "rate [all] | rate l1 <n>|all | rate trg ext|clkb|out | rate gtu | rate clk40m"},
     {"mode",    cmdMode,    "mode"},
     {"status",  cmdStatus,  "status [raw]"},
     {"fw",      cmdFw,      "fw sha"},
