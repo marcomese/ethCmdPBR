@@ -13,7 +13,7 @@
 #define PPSTRG_POS      5U   /* pps_trg        */
 #define GPSAUTO_POS     6U   /* pps_auto       */
 #define FSMSTATE_POS    7U   /* fsmState (4 bit) -> bit 10..7 */
-#define TIMEOUT_POS     11U  /* run start timed out waiting for the zynq busy lines */
+#define TIMEOUT_POS     11U  /* a selected zynq kept its busy high longer than the run timeout */
 #define GTUSEL_POS      12U  /* internal GTU selected   */
 #define CLK40SEL_POS    13U  /* internal clk40M selected */
 
@@ -117,7 +117,8 @@ static void decodePeriods(uint32_t periods, unsigned long long* gtuNs, unsigned 
     *selfNs = (unsigned long long)count * unit;
 }
 
-static void decodeStatusReg(uint64_t statusReg, uint32_t masterSlave, uint32_t periods, char* statusStr){
+static void decodeStatusReg(uint64_t statusReg, uint32_t masterSlave, uint32_t periods, uint32_t runTimeout,
+                            char* statusStr){
     uint8_t runCtrlState = 0;
     unsigned long long gtuNs = 0, selfNs = 0;
     char resStr[TCP_SND_BUF] = "";
@@ -145,7 +146,8 @@ static void decodeStatusReg(uint64_t statusReg, uint32_t masterSlave, uint32_t p
     appendField(resStr, "ZQ",      statusReg, ZQEN_POS,        ZYNQ_NUM);
     appendField(resStr, "ZQBUSY",  statusReg, ZQBUSY_POS,      ZYNQ_NUM);
 
-    snprintf(tempStr, STATUS_ID_MAX_LEN, "MODE=%s GTUPERIOD=%lluns ", modeStr(masterSlave), gtuNs);
+    snprintf(tempStr, STATUS_ID_MAX_LEN, "MODE=%s RUNTOUT=%" PRIu32 "s GTUPERIOD=%lluns ",
+             modeStr(masterSlave), runTimeout, gtuNs);
     strncat(resStr, tempStr, STATUS_ID_MAX_LEN);
 
     if(selfNs == 0)
@@ -286,13 +288,33 @@ static uint32_t usage(const char* text, char* reply){
     return CMD_ERROR;
 }
 
+static uint32_t readRunTimeout(axiRegisters_t* regDev){
+    return (readPl(regDev, STATUS_REG_ADDR, TRGFLG_ADDR) >> RUN_TOUT_POS) & RUN_TOUT_MASK;
+}
+
 static uint32_t cmdRun(axiRegisters_t* regDev, int argc, char** argv, char* reply){
+    const char* use = "run start|stop | run timeout [<s>] (1..65535)";
+    unsigned long long s = 0;
+
     if(argc == 2 && strcmp(argv[1], "start") == 0)
         return sendPl(regDev, PL_CMD(CMD_RUN, ARG_ON, 0, 0), "RUN START", reply);
     if(argc == 2 && strcmp(argv[1], "stop") == 0)
         return sendPl(regDev, PL_CMD(CMD_RUN, ARG_OFF, 0, 0), "RUN STOP", reply);
 
-    return usage("run start|stop", reply);
+    if(argc >= 2 && strcmp(argv[1], "timeout") == 0){
+        if(argc == 2){
+            snprintf(reply, TCP_SND_BUF, "RUN TIMEOUT=%" PRIu32 "s\n", readRunTimeout(regDev));
+            return CMD_LOCAL;
+        }
+        if(argc == 3 && parseUInt(argv[2], &s) == 0 && s >= 1 && s <= RUN_TOUT_MASK){
+            char echo[STATUS_ID_MAX_LEN] = "";
+
+            snprintf(echo, sizeof(echo), "RUN TIMEOUT %llu s", s);
+            return sendPl(regDev, PL_CMD(CMD_RUN, ARG_PPS, s >> 8, s & 0xFF), echo, reply);
+        }
+    }
+
+    return usage(use, reply);
 }
 
 static uint32_t cmdBusy(axiRegisters_t* regDev, int argc, char** argv, char* reply){
@@ -608,9 +630,10 @@ static uint32_t cmdStatus(axiRegisters_t* regDev, int argc, char** argv, char* r
     status |= (uint64_t)readPl(regDev, STATUS_REG_ADDR, STATUS_HI_ADDR) << 32;
     uint32_t masterSlave = readPl(regDev, ALIVEDEAD_REG_ADDR, MASTERSLAVE_ADDR);
     uint32_t periods     = readPl(regDev, L1CNT_46_REG_ADDR, PERIODS_ADDR);
+    uint32_t runTimeout  = readRunTimeout(regDev);
 
     if(argc == 1){
-        decodeStatusReg(status, masterSlave, periods, reply);
+        decodeStatusReg(status, masterSlave, periods, runTimeout, reply);
         return CMD_LOCAL;
     }
     if(argc == 2 && strcmp(argv[1], "raw") == 0){
@@ -654,7 +677,7 @@ typedef struct{
 } family_t;
 
 static const family_t families[] = {
-    {"run",     cmdRun,     "run start|stop"},
+    {"run",     cmdRun,     "run start|stop | run timeout [<s>]"},
     {"busy",    cmdBusy,    "busy set|release"},
     {"trg",     cmdTrg,     "trg soft | trg external|pps|clkb enable|disable | trg normal | trg self <ns>|0|period"},
     {"gps",     cmdGps,     "gps configure <word hi> <word lo>"},

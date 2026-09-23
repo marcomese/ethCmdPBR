@@ -67,11 +67,15 @@
 //  STATUS_REG registers
 #define STATUS_LO_ADDR      0x43C50000  // status_register(31 downto 0)
 #define STATUS_HI_ADDR      0x43C50004  // status_register(63 downto 32)
-#define TRGFLG_ADDR         0x43C50008
+#define TRGFLG_ADDR         0x43C50008  // trgFlag (8..0) | run timeout in seconds (31..16)
 #define FW_SHA_ADDR         0x43C5000C  // USR_ACCESS: git SHA embedded by Hog, 0 if not reproducible
 
 // USR_ACCESS holds the 7 hex digit abbreviated SHA, zero extended to 32 bit
 #define FW_SHA_MASK         0x0FFFFFFFU
+
+// TRGFLG register: run start / zynq busy timeout set with "run timeout"
+#define RUN_TOUT_POS        16U
+#define RUN_TOUT_MASK       0xFFFFU
 
 //  RATE registers: edges counted in the last second by rateMeters (1 s gate on the 100 MHz clock)
 #define RATE_EXTCLKB_ADDR   0x43C60000  // trigger from the other clock board (connector 7)
