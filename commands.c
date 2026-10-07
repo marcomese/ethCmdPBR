@@ -113,7 +113,7 @@ static void decodePeriods(uint32_t periods, unsigned long long* gtuNs, unsigned 
     for(unsigned int k = 0; k < scale; k++)
         unit *= 10;
 
-    *gtuNs  = (unsigned long long)gtuCyc * PL_CLK_NS;
+    *gtuNs  = (unsigned long long)gtuCyc * GTU_CLK_NS;
     *selfNs = (unsigned long long)count * unit;
 }
 
@@ -207,18 +207,18 @@ static int parseOnOff(const char* s, uint8_t* code){
     return -1;
 }
 
-/* gtu internal <ns> -> period in clk cycles */
+/* gtu internal <ns> -> period in cycles of the 200 MHz GTU generator clock */
 static int encodeGtuPeriod(unsigned long long ns, uint16_t* cycles, char* reply){
-    if(ns % PL_CLK_NS != 0){
-        snprintf(reply, TCP_SND_BUF, "Error: GTU period must be a multiple of %lu ns\n", PL_CLK_NS);
+    if(ns % GTU_CLK_NS != 0){
+        snprintf(reply, TCP_SND_BUF, "Error: GTU period must be a multiple of %lu ns\n", GTU_CLK_NS);
         return -1;
     }
 
-    unsigned long long cyc = ns / PL_CLK_NS;
+    unsigned long long cyc = ns / GTU_CLK_NS;
 
     if(cyc < GTU_PERIOD_MIN_CYC || cyc > GTU_PERIOD_MAX_CYC){
         snprintf(reply, TCP_SND_BUF, "Error: GTU period out of range (%lu..%lu ns)\n",
-                 GTU_PERIOD_MIN_CYC * PL_CLK_NS, GTU_PERIOD_MAX_CYC * PL_CLK_NS);
+                 GTU_PERIOD_MIN_CYC * GTU_CLK_NS, GTU_PERIOD_MAX_CYC * GTU_CLK_NS);
         return -1;
     }
 

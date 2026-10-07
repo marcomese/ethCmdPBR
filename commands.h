@@ -46,7 +46,9 @@
 #define PL_CLK_HZ            100000000UL
 #define PL_CLK_NS            10UL
 
-/* gtu internal <ns>: ARG1:ARG2 = period in clk cycles */
+/* gtu internal <ns>: ARG1:ARG2 = period in cycles of the GTU generator clock
+ * (clkSmpl, FCLK_CLK2 = 200 MHz, see gtuCtrl.vhd) */
+#define GTU_CLK_NS           5UL
 #define GTU_PERIOD_MIN_CYC   2UL
 #define GTU_PERIOD_MAX_CYC   65535UL
 
